@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "olmo-sglang"
+version = "0.1.0"
+description = "Out-of-tree SGLang model support for Olmo 3 hybrid MoE models"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+
+[project.urls]
+Repository = "https://github.com/allenai/olmo-sglang"
+
+[project.scripts]
+olmo-sglang-smoke = "olmo_sglang.infer:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
