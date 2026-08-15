@@ -88,6 +88,7 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = parse_args()
+    LOGGER.setLevel(logging.INFO)
     hf_tokens = None if args.skip_hf else run_hf(args.model, args.input_ids, args.max_new_tokens)
     sglang_tokens = run_sglang(args.model, args.input_ids, args.max_new_tokens)
     LOGGER.info("input_ids=%s", args.input_ids)
