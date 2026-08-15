@@ -31,6 +31,53 @@ RL rollouts, not yet the final optimized serving kernel.
 
 FLA is optional; attention-only checkpoints do not import it.
 
+## Roadmap and TODOs
+
+These items are intentionally explicit so a working correctness path is not
+confused with complete production serving support.
+
+### Correctness gate for MILES and Megatron Bridge
+
+- [ ] Load a real Megatron-Bridge-exported production checkpoint, with no
+  synthetic or attention-only substitutions.
+- [ ] Compare prompt logits, greedy tokens, and MoE router selections against
+  the reference implementation at the intended serving dtype.
+- [ ] Exercise short multi-request rollouts through the same HTTP or embedded
+  interface that MILES will use, including stop conditions and request
+  cancellation.
+- [ ] Validate the RL weight-refresh workflow: export or transfer a new policy
+  checkpoint, reload it in SGLang, and confirm that generation changes without
+  stale KDA state crossing policy versions.
+
+### KDA serving features
+
+- [ ] **Radix cache:** snapshot and restore both the convolution window and
+  recurrent KDA matrix at prefix-tree branch points; validate reuse, branching,
+  eviction, and request isolation.
+- [ ] **Speculative decoding:** implement KDA target verification with
+  per-proposal intermediate states and commit only the accepted prefix,
+  including rollback and tree-branch behavior.
+- [ ] **Tensor parallelism greater than one:** shard the KDA projections,
+  unequal-width K/V heads, convolution windows, and recurrent state correctly;
+  add TP=1 versus TP=2 numerical comparisons.
+- [ ] Validate batched and long-context KDA execution, request retraction, and
+  scheduler edge cases under sustained concurrent load.
+
+### Hardening and performance
+
+- [ ] Replace the correctness-first FLA chunk call for one-token decode with an
+  optimized OLMo-semantics kernel, then re-enable and validate CUDA graphs.
+- [ ] Replace or upstream the narrow FLA 0.5.2/Triton 3.7 source shim.
+- [ ] Add BF16 and production-dimension coverage, including real sparse-MoE
+  layers rather than only the tiny dense smoke checkpoint.
+- [ ] Optionally add a slow PyTorch CPU reference recurrence for portable unit
+  tests; production KDA serving remains GPU-oriented.
+
+Radix caching, speculative decoding, and TP>1 are not prerequisites for the
+first MILES integration. The immediate gate is real-checkpoint numerical
+correctness using TP=1, ordinary autoregressive decoding, and radix caching
+disabled.
+
 ## Install
 
 The package expects an existing SGLang runtime and deliberately does not install
