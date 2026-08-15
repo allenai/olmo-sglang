@@ -16,11 +16,6 @@ from functools import partial
 from typing import Iterable, Optional
 
 import torch
-from torch import nn
-from transformers import PretrainedConfig
-
-from olmo_sglang.config import validate_olmo3_moe_config
-from olmo_sglang.routing import olmo3_moe_topk
 from sglang.srt.layers.activation import SiluAndMul
 from sglang.srt.layers.layernorm import RMSNorm
 from sglang.srt.layers.linear import (
@@ -44,6 +39,12 @@ from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.model_loader.weight_utils import default_weight_loader
 from sglang.srt.runtime_context import get_parallel
 from sglang.srt.utils import add_prefix, make_layers
+from torch import nn
+from transformers import PretrainedConfig
+
+from olmo_sglang.config import validate_olmo3_moe_config
+from olmo_sglang.kda_layer import Olmo3MoeKDAAttention
+from olmo_sglang.routing import olmo3_moe_topk
 
 
 class Olmo3MoeDenseMLP(nn.Module):
@@ -200,18 +201,12 @@ class Olmo3MoeAttention(nn.Module):
         self.total_num_heads = config.num_attention_heads
         self.total_num_kv_heads = config.num_key_value_heads
         if self.total_num_heads % attn_tp_size != 0:
-            raise ValueError(
-                "num_attention_heads must be divisible by attention TP size"
-            )
+            raise ValueError("num_attention_heads must be divisible by attention TP size")
         if self.total_num_kv_heads >= attn_tp_size:
             if self.total_num_kv_heads % attn_tp_size != 0:
-                raise ValueError(
-                    "num_key_value_heads must be divisible by attention TP size"
-                )
+                raise ValueError("num_key_value_heads must be divisible by attention TP size")
         elif attn_tp_size % self.total_num_kv_heads != 0:
-            raise ValueError(
-                "attention TP size must be divisible by num_key_value_heads"
-            )
+            raise ValueError("attention TP size must be divisible by num_key_value_heads")
 
         self.num_heads = self.total_num_heads // attn_tp_size
         self.num_kv_heads = max(1, self.total_num_kv_heads // attn_tp_size)
@@ -255,9 +250,7 @@ class Olmo3MoeAttention(nn.Module):
         self.use_rope = getattr(config, "use_rope", True)
         if self.use_rope:
             rope_parameters = getattr(config, "rope_parameters", None) or {}
-            rope_theta = getattr(config, "rope_theta", None) or rope_parameters.get(
-                "rope_theta", 10000.0
-            )
+            rope_theta = getattr(config, "rope_theta", None) or rope_parameters.get("rope_theta", 10000.0)
             self.rotary_emb = get_rope(
                 self.head_dim,
                 rotary_dim=self.head_dim,
@@ -270,9 +263,7 @@ class Olmo3MoeAttention(nn.Module):
             self.rotary_emb = None
 
         layer_type = config.layer_types[layer_id]
-        sliding_window = (
-            config.sliding_window - 1 if layer_type == "sliding_attention" else -1
-        )
+        sliding_window = config.sliding_window - 1 if layer_type == "sliding_attention" else -1
         self.attn = RadixAttention(
             self.num_heads,
             self.head_dim,
@@ -307,9 +298,7 @@ class Olmo3MoeAttention(nn.Module):
         attention_output = self.attn(q, k, v, forward_batch)
         if self.g_proj is not None:
             gate = self.g_proj(hidden_states)[0]
-            attention_output = attention_output * torch.sigmoid(gate.float()).to(
-                attention_output.dtype
-            )
+            attention_output = attention_output * torch.sigmoid(gate.float()).to(attention_output.dtype)
         return self.o_proj(attention_output)[0]
 
 
@@ -325,7 +314,10 @@ class Olmo3MoeDecoderLayer(nn.Module):
         prefix: str,
     ) -> None:
         super().__init__()
-        self.self_attn = Olmo3MoeAttention(
+        attention_class = (
+            Olmo3MoeKDAAttention if config.layer_types[layer_id] == "linear_attention" else Olmo3MoeAttention
+        )
+        self.self_attn = attention_class(
             config,
             layer_id=layer_id,
             quant_config=quant_config,
@@ -347,21 +339,13 @@ class Olmo3MoeDecoderLayer(nn.Module):
             )
         )
         self.pre_attention_layernorm = (
-            RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-            if config.use_peri_ln
-            else None
+            RMSNorm(config.hidden_size, eps=config.rms_norm_eps) if config.use_peri_ln else None
         )
-        self.post_attention_layernorm = RMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps
-        )
+        self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.pre_feedforward_layernorm = (
-            RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-            if config.use_peri_ln
-            else None
+            RMSNorm(config.hidden_size, eps=config.rms_norm_eps) if config.use_peri_ln else None
         )
-        self.post_feedforward_layernorm = RMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps
-        )
+        self.post_feedforward_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
         self,
@@ -371,9 +355,7 @@ class Olmo3MoeDecoderLayer(nn.Module):
     ) -> torch.Tensor:
         residual = hidden_states
         attention_inputs = (
-            self.pre_attention_layernorm(hidden_states)
-            if self.pre_attention_layernorm is not None
-            else hidden_states
+            self.pre_attention_layernorm(hidden_states) if self.pre_attention_layernorm is not None else hidden_states
         )
         attention_output = self.self_attn(positions, attention_inputs, forward_batch)
         hidden_states = residual + self.post_attention_layernorm(attention_output)
@@ -406,9 +388,7 @@ class Olmo3MoeModel(nn.Module):
             prefix=add_prefix("embed_tokens", prefix),
         )
         self.embed_norm = (
-            RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-            if getattr(config, "embed_norm", False)
-            else None
+            RMSNorm(config.hidden_size, eps=config.rms_norm_eps) if getattr(config, "embed_norm", False) else None
         )
         self.embed_scale = float(getattr(config, "embed_scale", 1.0))
         self.layers = make_layers(
@@ -430,9 +410,7 @@ class Olmo3MoeModel(nn.Module):
         forward_batch: ForwardBatch,
         input_embeds: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        hidden_states = (
-            self.embed_tokens(input_ids) if input_embeds is None else input_embeds
-        )
+        hidden_states = self.embed_tokens(input_ids) if input_embeds is None else input_embeds
         if self.embed_norm is not None:
             hidden_states = self.embed_norm(hidden_states)
         hidden_states = hidden_states * self.embed_scale
@@ -455,9 +433,7 @@ class Olmo3MoeForCausalLM(nn.Module):
         super().__init__()
         self.config = config
         self.quant_config = quant_config
-        self.model = Olmo3MoeModel(
-            config, quant_config, prefix=add_prefix("model", prefix)
-        )
+        self.model = Olmo3MoeModel(config, quant_config, prefix=add_prefix("model", prefix))
         self.lm_head = ParallelLMHead(
             config.vocab_size,
             config.hidden_size,
@@ -478,9 +454,7 @@ class Olmo3MoeForCausalLM(nn.Module):
         input_embeds: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         hidden_states = self.model(input_ids, positions, forward_batch, input_embeds)
-        return self.logits_processor(
-            input_ids, hidden_states, self.lm_head, forward_batch
-        )
+        return self.logits_processor(input_ids, hidden_states, self.lm_head, forward_batch)
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
         """Load HF-layout weights into SGLang fused and tensor-parallel parameters."""
@@ -489,6 +463,9 @@ class Olmo3MoeForCausalLM(nn.Module):
             (".qkv_proj", ".q_proj", "q"),
             (".qkv_proj", ".k_proj", "k"),
             (".qkv_proj", ".v_proj", "v"),
+            (".qkv_conv1d", ".q_conv1d", 0),
+            (".qkv_conv1d", ".k_conv1d", 1),
+            (".qkv_conv1d", ".v_conv1d", 2),
             (".gate_up_proj", ".gate_proj", 0),
             (".gate_up_proj", ".up_proj", 1),
         ]
@@ -506,6 +483,7 @@ class Olmo3MoeForCausalLM(nn.Module):
             if "rotary_emb.inv_freq" in name:
                 continue
 
+            name = name.replace(".linear_attn.", ".self_attn.")
             for param_name, weight_name, shard_id in stacked_params_mapping:
                 if weight_name not in name:
                     continue
@@ -544,13 +522,9 @@ class Olmo3MoeForCausalLM(nn.Module):
                     if name.endswith(".bias") and name not in params:
                         continue
                     if name not in params:
-                        raise KeyError(
-                            f"No SGLang parameter for checkpoint weight {name}"
-                        )
+                        raise KeyError(f"No SGLang parameter for checkpoint weight {name}")
                     param = params[name]
-                    weight_loader = getattr(
-                        param, "weight_loader", default_weight_loader
-                    )
+                    weight_loader = getattr(param, "weight_loader", default_weight_loader)
                     weight_loader(param, loaded_weight, **loader_kwargs)
                     loaded_params.add(name)
         return loaded_params

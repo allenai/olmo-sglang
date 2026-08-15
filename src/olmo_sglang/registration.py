@@ -24,8 +24,7 @@ def register() -> None:
     configured_package = os.environ.get(_EXTERNAL_PACKAGE_ENV)
     if configured_package not in (None, "", MODEL_PACKAGE):
         raise RuntimeError(
-            f"{_EXTERNAL_PACKAGE_ENV} already selects {configured_package!r}; "
-            f"cannot also select {MODEL_PACKAGE!r}"
+            f"{_EXTERNAL_PACKAGE_ENV} already selects {configured_package!r}; cannot also select {MODEL_PACKAGE!r}"
         )
     os.environ[_EXTERNAL_PACKAGE_ENV] = MODEL_PACKAGE
 
@@ -37,4 +36,7 @@ def register() -> None:
             "SGLang runtime before calling olmo_sglang.register()."
         ) from error
 
+    from olmo_sglang.kda_backend import register_olmo_kda_backend
+
+    register_olmo_kda_backend()
     ModelRegistry.register(MODEL_PACKAGE, overwrite=True, strict=True)

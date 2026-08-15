@@ -9,6 +9,10 @@ does not need to be patched.
 ## Current milestone
 
 - Native full and sliding-window attention.
+- Native OLMo KDA prefill and cached decode through FLA 0.5.2.
+- Exact negative-eigenvalue semantics: raw beta logits use `2 * sigmoid(beta)`.
+- Unequal K/V head widths in the recurrent-state cache.
+- A package-local FLA 0.5.2 compatibility shim for Triton 3.7.
 - Headwise Q/K normalization and optional elementwise attention output gate.
 - Peri-LN residual ordering.
 - Dense SwiGLU and routed MoE layers.
@@ -18,12 +22,14 @@ does not need to be patched.
 - HF-layout weight loading into SGLang's fused QKV, SwiGLU, and MoE tensors.
 - Token-in/token-out HF versus SGLang greedy inference harness.
 
-The production model's `linear_attention` layers are deliberately rejected for
-now. SGLang already has recurrent KDA infrastructure, but the target Olmo model
-uses `beta = 2 * sigmoid(beta_proj(x))` when negative eigenvalues are enabled.
-Current SGLang decode kernels apply the sigmoid internally and assume the usual
-`[0, 1]` beta range. Treating that as ordinary Kimi KDA would silently change
-the model.
+The KDA implementation is a correctness-first serving path. It reuses SGLang's
+hybrid scheduler, convolution cache, and recurrent-state pool, but calls FLA
+0.5.2 for both prefill and decode so the model's beta semantics stay exact.
+Current limits are tensor parallel size 1, radix cache disabled, and no
+speculative target verification. This is suitable for parity work and initial
+RL rollouts, not yet the final optimized serving kernel.
+
+FLA is optional; attention-only checkpoints do not import it.
 
 ## Install
 
@@ -36,6 +42,12 @@ cd ~/proj/olmo-sglang
 uv venv --python 3.12
 uv pip install --python .venv/bin/python -e ~/proj/sglang/python
 uv pip install --python .venv/bin/python -e .
+```
+
+Install FLA when the checkpoint contains `linear_attention` layers:
+
+```bash
+uv pip install --python .venv/bin/python flash-linear-attention==0.5.2
 ```
 
 After installation, any Python process in that environment can import the
@@ -67,6 +79,9 @@ import sglang as sgl
 engine = sgl.Engine(
     model_path="/path/to/olmo-hf-checkpoint",
     trust_remote_code=True,
+    tp_size=1,
+    disable_radix_cache=True,
+    cuda_graph_backend_decode="disabled",
 )
 try:
     result = engine.generate(
@@ -94,6 +109,9 @@ SGLANG_EXTERNAL_MODEL_PACKAGE=olmo_sglang.models \
   .venv/bin/sglang serve \
   --model-path "$MODEL_PATH" \
   --trust-remote-code \
+  --tp-size 1 \
+  --disable-radix-cache \
+  --cuda-graph-backend-decode disabled \
   --host 0.0.0.0 \
   --port 30000
 ```
@@ -112,6 +130,41 @@ curl http://127.0.0.1:30000/v1/completions \
 ```
 
 Press `Ctrl-C` in the server terminal to shut it down.
+
+## Exercise KDA locally
+
+The repository includes a deterministic two-layer checkpoint with one KDA
+layer and one full-attention layer. It has no tokenizer and is intended only
+for fast GPU smoke tests:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/create_tiny_kda_checkpoint.py \
+  /tmp/olmo-sglang-tiny-kda
+
+PYTHONPATH=src .venv/bin/python -m olmo_sglang.infer \
+  --model /tmp/olmo-sglang-tiny-kda \
+  --skip-hf \
+  --input-ids 2 3 4 5 \
+  --max-new-tokens 4
+```
+
+The deterministic result on an RTX 4090 is:
+
+```text
+input_ids=[2, 3, 4, 5]
+sglang_output_ids=[53, 10, 45, 39]
+```
+
+The recurrence harness verifies that prompt prefill followed by cached
+single-token decode matches one uninterrupted FLA sequence:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/check_kda_recurrence.py
+```
+
+It also confirms that enabling negative eigenvalues produces a nonzero result
+delta from ordinary KDA, so the test would catch accidentally dropping the
+`2 * sigmoid(beta)` behavior.
 
 ## Tiny local inference smoke test
 
@@ -179,6 +232,7 @@ router selections at its serving dtype before enabling RL rollouts.
 
 ```bash
 PYTHONPATH=src python -m pytest tests -q
-ruff format --check src tests
-ruff check src tests
+ruff format --check src tests examples
+ruff check src tests examples
+PYTHONPATH=src python examples/check_kda_recurrence.py
 ```
