@@ -25,8 +25,6 @@ from sglang.srt.layers.attention.linear.kda_backend import KDAAttnBackend
 from sglang.srt.layers.attention.linear.kernels.kernel_backend import (
     LinearAttnKernelBase,
 )
-from transformers import PretrainedConfig
-
 
 EXPECTED_FLA_VERSION = "0.5.2"
 LOGGER = logging.getLogger(__name__)
@@ -182,6 +180,17 @@ def _prepare_olmo_config(config: Any) -> bool:
     return True
 
 
+class _OlmoKDAConfigMatcher(type):
+    """Adapt OLMo config matching to SGLang's type-based registry API."""
+
+    def __instancecheck__(cls, instance: object) -> bool:
+        return _prepare_olmo_config(instance)
+
+
+class _OlmoKDAConfig(metaclass=_OlmoKDAConfigMatcher):
+    """Virtual config type matching only supported OLMo KDA checkpoints."""
+
+
 def register_olmo_kda_backend() -> None:
     """Register OLMo's custom KDA cache geometry and backend with SGLang."""
 
@@ -196,12 +205,11 @@ def register_olmo_kda_backend() -> None:
 
     register_linear_attn_model(
         LinearAttnModelSpec(
-            config_class=PretrainedConfig,
+            config_class=_OlmoKDAConfig,
             backend_class_name="olmo_sglang.kda_backend.OlmoKDAAttnBackend",
             arch_names=["Olmo3MoeForCausalLM"],
             uses_mamba_radix_cache=False,
             support_mamba_cache=True,
-            config_predicate=_prepare_olmo_config,
         )
     )
     _REGISTERED = True

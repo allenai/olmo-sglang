@@ -1,7 +1,12 @@
 from types import SimpleNamespace
 
 import torch
-from olmo_sglang.kda_backend import OlmoKDAStateShape, _prepare_olmo_config
+
+from olmo_sglang.kda_backend import (
+    OlmoKDAStateShape,
+    _OlmoKDAConfig,
+    _prepare_olmo_config,
+)
 
 
 def _config():
@@ -38,3 +43,18 @@ def test_prepare_olmo_config_ignores_attention_only_model():
     config = _config()
     config.layer_types = ["full_attention", "full_attention"]
     assert not _prepare_olmo_config(config)
+
+
+def test_virtual_config_type_matches_and_prepares_only_olmo_kda():
+    config = _config()
+    assert isinstance(config, _OlmoKDAConfig)
+    assert config.linear_layer_ids == [0]
+    assert config.mamba2_cache_params.layers == [0]
+
+    other_architecture = _config()
+    other_architecture.architectures = ["OtherForCausalLM"]
+    assert not isinstance(other_architecture, _OlmoKDAConfig)
+
+    attention_only = _config()
+    attention_only.layer_types = ["full_attention", "full_attention"]
+    assert not isinstance(attention_only, _OlmoKDAConfig)
