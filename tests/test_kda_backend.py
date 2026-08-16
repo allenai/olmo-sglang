@@ -6,6 +6,7 @@ from olmo_sglang.kda_backend import (
     OlmoKDAStateShape,
     _OlmoKDAConfig,
     _prepare_olmo_config,
+    _triton_needs_fla_patch,
 )
 
 
@@ -58,3 +59,9 @@ def test_virtual_config_type_matches_and_prepares_only_olmo_kda():
     attention_only = _config()
     attention_only.layer_types = ["full_attention", "full_attention"]
     assert not isinstance(attention_only, _OlmoKDAConfig)
+
+
+def test_fla_constexpr_shim_covers_pinned_triton_runtime():
+    assert not _triton_needs_fla_patch("3.5.1")
+    assert _triton_needs_fla_patch("3.6.0")
+    assert _triton_needs_fla_patch("3.7.0")

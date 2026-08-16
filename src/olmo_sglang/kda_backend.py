@@ -31,15 +31,21 @@ LOGGER = logging.getLogger(__name__)
 _REGISTERED = False
 
 
-def _patch_fla_for_triton_3_7() -> None:
-    """Adapt one FLA 0.5.2 KDA constexpr expression for Triton 3.7+."""
+def _triton_needs_fla_patch(version: str) -> bool:
+    """Return whether FLA 0.5.2 needs its KDA constexpr compatibility shim."""
+
+    try:
+        major_minor = tuple(int(part) for part in version.split(".")[:2])
+    except ValueError as error:
+        raise RuntimeError(f"Cannot parse Triton version {version!r}") from error
+    return major_minor >= (3, 6)
+
+
+def _patch_fla_for_triton_3_6() -> None:
+    """Adapt one FLA 0.5.2 KDA constexpr expression for Triton 3.6+."""
 
     triton_version = importlib.metadata.version("triton")
-    try:
-        major_minor = tuple(int(part) for part in triton_version.split(".")[:2])
-    except ValueError as error:
-        raise RuntimeError(f"Cannot parse Triton version {triton_version!r}") from error
-    if major_minor < (3, 7):
+    if not _triton_needs_fla_patch(triton_version):
         return
 
     from fla.ops.kda.chunk_intra_token_parallel import (
@@ -64,7 +70,9 @@ def _patch_fla_for_triton_3_7() -> None:
     if old_expression not in source:
         if replacement in source:
             return
-        raise RuntimeError("FLA 0.5.2 KDA source did not match the expected Triton 3.7 compatibility target")
+        raise RuntimeError(
+            "FLA 0.5.2 KDA source did not match the expected Triton 3.6+ compatibility target"
+        )
 
     # Triton explicitly provides this API for controlled source rewrites. The
     # kernel has no JIT callers whose hash also needs invalidating.
@@ -82,9 +90,11 @@ def require_fla_0_5_2() -> None:
             "OLMo KDA requires flash-linear-attention==0.5.2. Install the package in the same environment as SGLang."
         ) from error
     if version != EXPECTED_FLA_VERSION:
-        raise RuntimeError(f"OLMo KDA requires flash-linear-attention==0.5.2; found {version}")
+        raise RuntimeError(
+            f"OLMo KDA requires flash-linear-attention==0.5.2; found {version}"
+        )
 
-    _patch_fla_for_triton_3_7()
+    _patch_fla_for_triton_3_6()
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -105,7 +115,7 @@ class OlmoKDAStateShape:
     conv_slice_axis: int = 1
 
     @classmethod
-    def from_config(cls, config: Any) -> "OlmoKDAStateShape":
+    def from_config(cls, config: Any) -> OlmoKDAStateShape:
         """Build the TP=1 cache shape from an OLMo HF config."""
 
         key_dim = config.linear_num_key_heads * config.linear_key_head_dim
@@ -161,13 +171,19 @@ def _prepare_olmo_config(config: Any) -> bool:
         return False
 
     layer_types = tuple(getattr(config, "layer_types", ()) or ())
-    linear_layer_ids = [index for index, layer_type in enumerate(layer_types) if layer_type == "linear_attention"]
+    linear_layer_ids = [
+        index
+        for index, layer_type in enumerate(layer_types)
+        if layer_type == "linear_attention"
+    ]
     if not linear_layer_ids:
         return False
 
     config.linear_layer_ids = linear_layer_ids
     config.full_attention_layer_ids = [
-        index for index, layer_type in enumerate(layer_types) if layer_type != "linear_attention"
+        index
+        for index, layer_type in enumerate(layer_types)
+        if layer_type != "linear_attention"
     ]
     config.mamba2_cache_params = OlmoKDACacheParams(
         shape=OlmoKDAStateShape.from_config(config),
@@ -278,7 +294,9 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         lower_bound: float | None = None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         if lower_bound is not None:
-            raise NotImplementedError("OLMo KDA does not use Kimi's safe-gate lower bound")
+            raise NotImplementedError(
+                "OLMo KDA does not use Kimi's safe-gate lower bound"
+            )
 
         from fla.ops.kda import chunk_kda
 
@@ -306,7 +324,9 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         output, final_state = result[:2]
         self._commit_final_state(ssm_states, cache_indices, final_state, valid)
         if not valid.all():
-            invalid_tokens = torch.repeat_interleave(~valid, query_start_loc[1:] - query_start_loc[:-1])
+            invalid_tokens = torch.repeat_interleave(
+                ~valid, query_start_loc[1:] - query_start_loc[:-1]
+            )
             output[:, invalid_tokens] = 0
         if return_intermediate_states:
             return output, result[2]
@@ -321,7 +341,9 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         b: torch.Tensor,
         **kwargs: Any,
     ) -> torch.Tensor:
-        run_kwargs = {name: value for name, value in kwargs.items() if name in self._RUN_ARGUMENTS}
+        run_kwargs = {
+            name: value for name, value in kwargs.items() if name in self._RUN_ARGUMENTS
+        }
         return self._run(q, k, v, a, b, **run_kwargs)
 
     def extend(
@@ -333,7 +355,9 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         beta: torch.Tensor,
         **kwargs: Any,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        run_kwargs = {name: value for name, value in kwargs.items() if name in self._RUN_ARGUMENTS}
+        run_kwargs = {
+            name: value for name, value in kwargs.items() if name in self._RUN_ARGUMENTS
+        }
         return self._run(q, k, v, g, beta, **run_kwargs)
 
 
@@ -343,7 +367,9 @@ class OlmoKDAAttnBackend(KDAAttnBackend):
     def __init__(self, model_runner: Any) -> None:
         super().__init__(model_runner)
         config = model_runner.model_config.hf_config
-        model_runner.model_config.full_attention_layer_ids = config.full_attention_layer_ids
+        model_runner.model_config.full_attention_layer_ids = (
+            config.full_attention_layer_ids
+        )
         model_runner.model_config.linear_layer_ids = config.linear_layer_ids
         kernel = OlmoFLAKDAKernel(allow_neg_eigval=bool(config.linear_allow_neg_eigval))
         self.kernel_dispatcher.decode_kernel = kernel

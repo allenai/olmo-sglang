@@ -12,7 +12,7 @@ does not need to be patched.
 - Native OLMo KDA prefill and cached decode through FLA 0.5.2.
 - Exact negative-eigenvalue semantics: raw beta logits use `2 * sigmoid(beta)`.
 - Unequal K/V head widths in the recurrent-state cache.
-- A package-local FLA 0.5.2 compatibility shim for Triton 3.7.
+- A package-local FLA 0.5.2 compatibility shim for Triton 3.6 and newer.
 - Headwise Q/K normalization and optional elementwise attention output gate.
 - Peri-LN residual ordering.
 - Dense SwiGLU and routed MoE layers.
@@ -67,7 +67,7 @@ confused with complete production serving support.
 
 - [ ] Replace the correctness-first FLA chunk call for one-token decode with an
   optimized OLMo-semantics kernel, then re-enable and validate CUDA graphs.
-- [ ] Replace or upstream the narrow FLA 0.5.2/Triton 3.7 source shim.
+- [ ] Replace or upstream the narrow FLA 0.5.2/Triton 3.6+ source shim.
 - [ ] Add BF16 and production-dimension coverage, including real sparse-MoE
   layers rather than only the tiny dense smoke checkpoint.
 - [ ] Optionally add a slow PyTorch CPU reference recurrence for portable unit
