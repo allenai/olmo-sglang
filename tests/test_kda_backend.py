@@ -145,6 +145,8 @@ def test_fla_constexpr_shim_rewrites_on_first_launcher_call(monkeypatch):
 
     assert result == (aqk, akk)
     assert calls[0]["q"] is q
+    assert calls[0]["gk"] is q
+    assert "g" not in calls[0]
     assert "    BK: tl.constexpr = 64" in jit_kernel.src
     assert (
         chunk_intra.chunk_kda_fwd_intra_token_parallel

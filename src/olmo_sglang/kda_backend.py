@@ -113,7 +113,7 @@ def _patch_fla_for_triton_3_6() -> None:
         return original_launcher(
             q=q,
             k=k,
-            g=gk,
+            gk=gk,
             beta=beta,
             Aqk=Aqk,
             Akk=Akk,
