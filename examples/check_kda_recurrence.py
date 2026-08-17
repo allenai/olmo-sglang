@@ -8,8 +8,8 @@ from __future__ import annotations
 import logging
 
 import torch
-from olmo_sglang.kda_backend import OlmoFLAKDAKernel
 
+from olmo_sglang.kda_backend import OlmoFLAKDAKernel
 
 LOGGER = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def _reference(
         k=k,
         v=v,
         g=gate,
-        beta=beta,
+        beta=beta.float().sigmoid() * (2.0 if allow_neg_eigval else 1.0),
         A_log=A_log,
         dt_bias=dt_bias,
         initial_state=torch.zeros(
@@ -46,9 +46,7 @@ def _reference(
         output_final_state=True,
         use_qk_l2norm_in_kernel=True,
         use_gate_in_kernel=True,
-        use_beta_sigmoid_in_kernel=True,
-        allow_neg_eigval=allow_neg_eigval,
-        state_v_first=True,
+        transpose_state_layout=True,
         cu_seqlens=torch.tensor([0, q.shape[1]], dtype=torch.int32, device=q.device),
     )
     return output, final_state
@@ -80,7 +78,9 @@ def main() -> None:
     query_start_loc = torch.tensor([0, prompt_length], dtype=torch.int32, device=device)
     decode_start_loc = torch.tensor([0, 1], dtype=torch.int32, device=device)
     cache_indices = torch.tensor([0], dtype=torch.int32, device=device)
-    state_pool = torch.zeros(1, num_heads, value_dim, key_dim, dtype=torch.float32, device=device)
+    state_pool = torch.zeros(
+        1, num_heads, value_dim, key_dim, dtype=torch.float32, device=device
+    )
 
     kernel = OlmoFLAKDAKernel(allow_neg_eigval=True)
     prefill = kernel.extend(
@@ -109,15 +109,21 @@ def main() -> None:
     )
     cached_output = torch.cat((prefill, decode), dim=1)
 
-    reference_output, reference_state = _reference(q, k, v, gate, beta, A_log, dt_bias, allow_neg_eigval=True)
-    ordinary_output, _ = _reference(q, k, v, gate, beta, A_log, dt_bias, allow_neg_eigval=False)
+    reference_output, reference_state = _reference(
+        q, k, v, gate, beta, A_log, dt_bias, allow_neg_eigval=True
+    )
+    ordinary_output, _ = _reference(
+        q, k, v, gate, beta, A_log, dt_bias, allow_neg_eigval=False
+    )
     output_diff = (cached_output - reference_output).abs().max().item()
     state_diff = (state_pool - reference_state).abs().max().item()
     semantic_delta = (reference_output - ordinary_output).abs().max().item()
     torch.testing.assert_close(cached_output, reference_output, atol=2e-3, rtol=2e-3)
     torch.testing.assert_close(state_pool, reference_state, atol=2e-3, rtol=2e-3)
     if semantic_delta == 0.0:
-        raise AssertionError("negative-eigenvalue KDA unexpectedly matched ordinary KDA")
+        raise AssertionError(
+            "negative-eigenvalue KDA unexpectedly matched ordinary KDA"
+        )
 
     LOGGER.info(
         "OLMO_KDA_RECURRENCE_PASS "

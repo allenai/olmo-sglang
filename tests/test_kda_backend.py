@@ -1,6 +1,5 @@
 import sys
-from types import ModuleType
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import torch
 
@@ -152,3 +151,54 @@ def test_fla_constexpr_shim_rewrites_on_first_launcher_call(monkeypatch):
         chunk_intra.chunk_kda_fwd_intra_token_parallel
         is token_parallel.chunk_kda_fwd_intra_token_parallel
     )
+
+
+def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch):
+    calls = []
+
+    def chunk_kda(**kwargs):
+        calls.append(kwargs)
+        output = torch.zeros_like(kwargs["v"])
+        return output, kwargs["initial_state"] + 1
+
+    fla = ModuleType("fla")
+    ops = ModuleType("fla.ops")
+    kda = ModuleType("fla.ops.kda")
+    kda.chunk_kda = chunk_kda
+    fla.ops = ops
+    ops.kda = kda
+    for name, module in {
+        "fla": fla,
+        "fla.ops": ops,
+        "fla.ops.kda": kda,
+    }.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    kernel = object.__new__(kda_backend.OlmoFLAKDAKernel)
+    kernel.allow_neg_eigval = True
+    q = torch.zeros(1, 2, 1, 2)
+    v = torch.zeros(1, 2, 1, 3)
+    raw_beta = torch.tensor([[[0.0], [1.0]]])
+    state_pool = torch.zeros(1, 1, 3, 2)
+
+    kernel.extend(
+        q,
+        q,
+        v,
+        q,
+        raw_beta,
+        A_log=torch.zeros(1),
+        dt_bias=torch.zeros(2),
+        ssm_states=state_pool,
+        cache_indices=torch.tensor([0]),
+        query_start_loc=torch.tensor([0, 2]),
+    )
+
+    expected_beta = raw_beta.float().sigmoid() * 2.0
+    torch.testing.assert_close(calls[0]["beta"], expected_beta)
+    assert calls[0]["transpose_state_layout"] is True
+    assert "state_v_first" not in calls[0]
+    assert "use_beta_sigmoid_in_kernel" not in calls[0]
+    assert "allow_neg_eigval" not in calls[0]
+    assert calls[0]["initial_state"].shape == (1, 1, 3, 2)
+    torch.testing.assert_close(state_pool, torch.ones_like(state_pool))

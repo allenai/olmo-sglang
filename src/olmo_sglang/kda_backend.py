@@ -355,23 +355,23 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
 
         initial_state, valid = self._gather_initial_state(ssm_states, cache_indices)
         raw_gate = raw_gate.reshape(q.shape[0], q.shape[1], v.shape[2], q.shape[-1])
-        raw_beta = raw_beta.reshape(q.shape[0], q.shape[1], v.shape[2])
+        beta = raw_beta.reshape(q.shape[0], q.shape[1], v.shape[2]).float().sigmoid()
+        if self.allow_neg_eigval:
+            beta = beta * 2.0
         result = chunk_kda(
             q=q,
             k=k,
             v=v,
             g=raw_gate,
-            beta=raw_beta,
+            beta=beta,
             A_log=A_log.reshape(-1),
             dt_bias=dt_bias.reshape(-1),
             initial_state=initial_state,
             output_final_state=True,
             use_qk_l2norm_in_kernel=True,
             use_gate_in_kernel=True,
-            use_beta_sigmoid_in_kernel=True,
-            allow_neg_eigval=self.allow_neg_eigval,
             return_intermediate_states=return_intermediate_states,
-            state_v_first=True,
+            transpose_state_layout=True,
             cu_seqlens=query_start_loc,
         )
         output, final_state = result[:2]
