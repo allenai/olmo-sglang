@@ -29,6 +29,7 @@ from sglang.srt.layers.attention.linear.kernels.kernel_backend import (
 EXPECTED_FLA_VERSION = "0.5.2"
 LOGGER = logging.getLogger(__name__)
 _REGISTERED = False
+_FLA_PATCHED = False
 
 
 def _triton_needs_fla_patch(version: str) -> bool:
@@ -41,42 +42,94 @@ def _triton_needs_fla_patch(version: str) -> bool:
     return major_minor >= (3, 6)
 
 
-def _patch_fla_for_triton_3_6() -> None:
-    """Adapt one FLA 0.5.2 KDA constexpr expression for Triton 3.6+."""
+def _rewrite_fla_kernel_source(source: str, *, block_width: int) -> str:
+    """Replace FLA's unsupported constexpr helper with an equivalent literal."""
 
-    triton_version = importlib.metadata.version("triton")
-    if not _triton_needs_fla_patch(triton_version):
-        return
+    old_expression = "    BK: tl.constexpr = triton.next_power_of_2(K)\n"
+    new_expression = f"    BK: tl.constexpr = {block_width}\n"
 
-    from fla.ops.kda.chunk_intra_token_parallel import (
-        chunk_kda_fwd_kernel_intra_token_parallel,
-    )
-
-    jit_kernel = chunk_kda_fwd_kernel_intra_token_parallel
-    while hasattr(jit_kernel, "fn") and not hasattr(jit_kernel, "_unsafe_update_src"):
-        jit_kernel = jit_kernel.fn
-
-    old_expression = "    BK: tl.constexpr = triton.next_power_of_2(K)"
-    replacement = """    BK: tl.constexpr = 16
-    if K > 16:
-        BK = 32
-    if K > 32:
-        BK = 64
-    if K > 64:
-        BK = 128
-    if K > 128:
-        BK = 256"""
-    source = jit_kernel.src
+    if new_expression in source and old_expression not in source:
+        return source
     if old_expression not in source:
-        if replacement in source:
-            return
         raise RuntimeError(
             "FLA 0.5.2 KDA source did not match the expected Triton 3.6+ compatibility target"
         )
+    return source.replace(old_expression, new_expression)
 
-    # Triton explicitly provides this API for controlled source rewrites. The
-    # kernel has no JIT callers whose hash also needs invalidating.
-    jit_kernel._unsafe_update_src(source.replace(old_expression, replacement))
+
+def _patch_fla_for_triton_3_6() -> None:
+    """Resolve FLA 0.5.2's KDA block width before Triton 3.6+ compiles it."""
+
+    global _FLA_PATCHED
+
+    triton_version = importlib.metadata.version("triton")
+    if _FLA_PATCHED or not _triton_needs_fla_patch(triton_version):
+        return
+
+    import fla.ops.kda.chunk_intra as chunk_intra_module
+    import fla.ops.kda.chunk_intra_token_parallel as token_parallel_module
+    import triton
+
+    kernel = token_parallel_module.chunk_kda_fwd_kernel_intra_token_parallel
+    jit_kernel = kernel
+    while hasattr(jit_kernel, "fn") and not hasattr(jit_kernel, "_unsafe_update_src"):
+        jit_kernel = jit_kernel.fn
+
+    original_launcher = token_parallel_module.chunk_kda_fwd_intra_token_parallel
+    patched_block_width: int | None = None
+
+    def chunk_kda_fwd_intra_token_parallel_compat(
+        q: torch.Tensor,
+        k: torch.Tensor,
+        gk: torch.Tensor,
+        beta: torch.Tensor,
+        Aqk: torch.Tensor,
+        Akk: torch.Tensor,
+        scale: float,
+        cu_seqlens: torch.LongTensor | None = None,
+        chunk_size: int = 64,
+        sub_chunk_size: int = 16,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        nonlocal patched_block_width
+
+        block_width = triton.next_power_of_2(q.shape[-1])
+        if patched_block_width is None:
+            # Triton explicitly provides this API for controlled source
+            # rewrites. This kernel has no JIT callers whose hash also needs
+            # invalidating. A literal retains constexpr type in Triton 3.6.
+            jit_kernel._unsafe_update_src(
+                _rewrite_fla_kernel_source(
+                    jit_kernel.src,
+                    block_width=block_width,
+                )
+            )
+            patched_block_width = block_width
+        elif block_width != patched_block_width:
+            raise RuntimeError(
+                "FLA 0.5.2 KDA compatibility shim cannot mix head widths in one process: "
+                f"compiled {patched_block_width}, received {block_width}"
+            )
+
+        return original_launcher(
+            q=q,
+            k=k,
+            g=gk,
+            beta=beta,
+            Aqk=Aqk,
+            Akk=Akk,
+            scale=scale,
+            cu_seqlens=cu_seqlens,
+            chunk_size=chunk_size,
+            sub_chunk_size=sub_chunk_size,
+        )
+
+    token_parallel_module.chunk_kda_fwd_intra_token_parallel = (
+        chunk_kda_fwd_intra_token_parallel_compat
+    )
+    chunk_intra_module.chunk_kda_fwd_intra_token_parallel = (
+        chunk_kda_fwd_intra_token_parallel_compat
+    )
+    _FLA_PATCHED = True
     LOGGER.info("Applied FLA 0.5.2 compatibility shim for Triton %s", triton_version)
 
 
