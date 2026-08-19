@@ -44,7 +44,7 @@ from transformers import PretrainedConfig
 from olmo_sglang.activations import native_silu_and_mul
 from olmo_sglang.config import validate_olmo3_moe_config
 from olmo_sglang.kda_layer import Olmo3MoeKDAAttention
-from olmo_sglang.routing import olmo3_moe_topk
+from olmo_sglang.routing import fp32_router_logits, olmo3_moe_topk
 
 
 class Olmo3MoeDenseMLP(nn.Module):
@@ -164,7 +164,10 @@ class Olmo3MoeSparseMLP(nn.Module):
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         original_shape = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, self.hidden_size)
-        router_logits = self.router.gate(hidden_states)[0].float()
+        # OLMo-core and the exported HF implementation evaluate the router
+        # projection in FP32. Casting only the BF16 GEMM result is too late: it
+        # can change top-k expert assignments and compounds over sparse layers.
+        router_logits = fp32_router_logits(hidden_states, self.router.gate.weight)
 
         expert_inputs = hidden_states
         if self.latent_down_proj is not None:
@@ -438,9 +441,9 @@ class Olmo3MoeModel(nn.Module):
         hidden_states = (
             self.embed_tokens(input_ids) if input_embeds is None else input_embeds
         )
+        hidden_states = hidden_states * self.embed_scale
         if self.embed_norm is not None:
             hidden_states = self.embed_norm(hidden_states)
-        hidden_states = hidden_states * self.embed_scale
         for layer in self.layers:
             hidden_states = layer(positions, hidden_states, forward_batch)
         return self.norm(hidden_states)

@@ -6,6 +6,15 @@
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
+
+
+def fp32_router_logits(
+    hidden_states: torch.Tensor, router_weight: torch.Tensor
+) -> torch.Tensor:
+    """Evaluate the OLMo router projection in FP32, matching OLMo-core."""
+
+    return F.linear(hidden_states.float(), router_weight.float())
 
 
 def olmo3_moe_topk(
@@ -32,6 +41,9 @@ def olmo3_moe_topk(
         )
     if restore_weight_scale:
         topk_weights = topk_weights * topk
-    if original_num_experts_per_tok is not None and original_num_experts_per_tok != topk:
+    if (
+        original_num_experts_per_tok is not None
+        and original_num_experts_per_tok != topk
+    ):
         topk_weights = topk_weights * (original_num_experts_per_tok / topk) ** 0.5
     return topk_weights, topk_ids.to(torch.int32)

@@ -213,6 +213,46 @@ It also confirms that enabling negative eigenvalues produces a nonzero result
 delta from ordinary KDA, so the test would catch accidentally dropping the
 `2 * sigmoid(beta)` behavior.
 
+## Local production-shaped parity loop
+
+Use the independent tiny reference before spending a full-checkpoint cycle on
+Beaker. Four deterministic BF16 profiles isolate the base attention model, KDA
+prefill/cached decode, latent sparse-MoE execution, and the production model's
+critical dimensions:
+
+```bash
+export PARITY_ROOT=/tmp/olmo-sglang-parity
+
+for profile in attention-dense kda-dense hybrid-moe production-shape; do
+  PYTHONPATH=src .venv/bin/python examples/create_tiny_parity_checkpoint.py \
+    "$PARITY_ROOT/$profile" --profile "$profile"
+  PYTHONPATH=src .venv/bin/python -m olmo_sglang.parity \
+    --model "$PARITY_ROOT/$profile" \
+    --max-new-tokens 4 \
+    --output "$PARITY_ROOT/$profile.json" \
+    --require-parity
+done
+```
+
+The checkpoints include a tiny tokenizer, ChatML-style chat template, peri-LN,
+NoPE attention, non-unit embedding scale, headwise Q/K normalization, elementwise
+attention gating, and unequal K/V widths. The `hybrid-moe` profile adds
+factorized KDA gates, negative eigenvalues, a latent four-expert top-2 MoE,
+unaligned expert widths, and a shared expert. The `production-shape` profile
+uses the real 1280 hidden width, 2048 full-attention width, 4096 KDA value
+width, 640 latent width, 952 expert width, 8568 dense width, top-16 routing,
+and the first production block's four-KDA-then-full-attention pattern. It keeps
+32 rather than 512 routed experts so it remains practical on a 24 GB GPU.
+
+`olmo-sglang.parity` tokenizes and renders the prompt once, passes the exact
+token IDs to both implementations, and compares an independent PyTorch
+reference with embedded SGLang. Its JSON report preserves the rendered prompt,
+input IDs, greedy outputs, per-step top log probabilities, forced-prefix
+full-prefill results, and shape/finite/statistical summaries for every reference
+boundary. The forced-prefix results distinguish cached-decode drift from a
+prefill/model mismatch. Exact local token agreement is the gate before running
+the same check against a production checkpoint.
+
 ## Tiny local inference smoke test
 
 The local attention-only reference checkpoint is small enough for a fast GPU
