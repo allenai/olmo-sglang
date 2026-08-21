@@ -34,6 +34,8 @@ def _create_engine(
         disable_radix_cache=True,
         cuda_graph_backend_decode="disabled",
         cuda_graph_backend_prefill="disabled",
+        attention_backend="triton",
+        page_size=1,
         context_length=context_length,
         max_total_tokens=max(256, context_length * 2),
         max_mamba_cache_size=4,
@@ -50,7 +52,20 @@ def _generate(engine: Any, input_ids: list[int], max_new_tokens: int) -> dict[st
             "max_new_tokens": max_new_tokens,
             "ignore_eos": True,
         },
+        return_logprob=True,
     )
+
+
+def _chosen_token_logprobs(result: dict[str, Any]) -> list[float]:
+    """Extract chosen-token log probabilities from an SGLang response."""
+
+    try:
+        values = result["meta_info"]["output_token_logprobs"]
+        return [float(value[0]) for value in values]
+    except (KeyError, TypeError, ValueError) as error:
+        raise AssertionError(
+            "SGLang response did not contain output token log probabilities"
+        ) from error
 
 
 def run_tp_smoke(
@@ -94,12 +109,29 @@ def run_tp_smoke(
             "tensor parallelism changed greedy output: "
             f"tp1={baseline['output_ids']}, tp{tp_size}={sharded['output_ids']}"
         )
+    baseline_logprobs = _chosen_token_logprobs(baseline)
+    sharded_logprobs = _chosen_token_logprobs(sharded)
+    if len(sharded_logprobs) != len(baseline_logprobs):
+        raise AssertionError(
+            "tensor parallelism changed the number of output token log probabilities: "
+            f"tp1={len(baseline_logprobs)}, tp{tp_size}={len(sharded_logprobs)}"
+        )
+    logprob_abs_diffs = [
+        abs(tp1 - sharded)
+        for tp1, sharded in zip(baseline_logprobs, sharded_logprobs, strict=True)
+    ]
     return {
         "input_ids": input_ids,
         "output_ids": baseline["output_ids"],
         "baseline_tp_size": 1,
         "comparison_tp_size": tp_size,
         "token_parity": True,
+        "chosen_token_logprob_max_abs_diff": max(logprob_abs_diffs, default=0.0),
+        "chosen_token_logprob_mean_abs_diff": (
+            sum(logprob_abs_diffs) / len(logprob_abs_diffs)
+            if logprob_abs_diffs
+            else 0.0
+        ),
     }
 
 
