@@ -29,11 +29,10 @@ hybrid scheduler, convolution cache, and recurrent-state pool, but calls FLA
 Its radix path uses FLA's intermediate recurrent states plus SGLang's
 `extra_buffer` strategy to snapshot branch points, with copy-on-write for both
 the convolution window and recurrent matrix. Current limits are tensor parallel
-size 1, no speculative
-target verification, and no validated cache invalidation across an RL policy
-weight refresh. Cache-enabled MILES rollouts remain gated on those production
-checkpoint and refresh checks. This is not yet the final optimized serving
-kernel.
+size 1, no speculative target verification, and no changed-weight numerical
+attribution across an RL policy refresh. The idle refresh lifecycle and
+production MILES refresh path are validated. This is not yet the final
+optimized serving kernel.
 
 FLA is optional; attention-only checkpoints do not import it.
 
@@ -44,11 +43,11 @@ confused with complete production serving support.
 
 ### Correctness gate for MILES and Megatron Bridge
 
-- [ ] Load a real Megatron-Bridge-exported production checkpoint, with no
+- [x] Load a real Megatron-Bridge-exported production checkpoint, with no
   synthetic or attention-only substitutions.
 - [ ] Compare prompt logits, greedy tokens, and MoE router selections against
   the reference implementation at the intended serving dtype.
-- [ ] Exercise short multi-request rollouts through the same HTTP or embedded
+- [x] Exercise short multi-request rollouts through the same HTTP or embedded
   interface that MILES will use, including stop conditions and request
   cancellation.
 - [x] Validate an idle policy-refresh boundary locally: establish cache reuse,
@@ -81,8 +80,9 @@ confused with complete production serving support.
 - [ ] **Tensor parallelism greater than one:** shard the KDA projections,
   unequal-width K/V heads, convolution windows, and recurrent state correctly;
   add TP=1 versus TP=2 numerical comparisons.
-- [ ] Validate batched and long-context KDA execution, request retraction, and
-  scheduler edge cases under sustained concurrent load.
+- [x] Validate mixed-length and long-prefix KDA batching, 64-token chunked
+  prefill, in-flight and queued cancellation, and forced scheduler retraction.
+  Organic retraction under production memory pressure remains a load-test item.
 
 ### Hardening and performance
 
@@ -93,9 +93,9 @@ confused with complete production serving support.
   from 0.434 ms to 0.007 ms at batch one and from 0.463 ms to 0.010 ms at
   batch four. Torch recurrence parity covers both beta modes; the tiny hybrid
   engine retains its exact greedy tokens and 256-token radix-cache hits.
-- [ ] Enable decode CUDA graphs only after production-checkpoint packed-kernel
-  parity; compare replay iterations against the matched eager path. Keep
-  prefill graphs disabled for a separate experiment.
+- [ ] Compare decode CUDA-graph replay against the matched packed eager path.
+  Production-checkpoint packed-kernel parity is complete; prefill graphs stay
+  disabled for a separate experiment.
 - [ ] Replace or upstream the narrow FLA 0.5.2/Triton 3.6+ source shim.
 - [ ] Add BF16 and production-dimension coverage, including real sparse-MoE
   layers rather than only the tiny dense smoke checkpoint.
