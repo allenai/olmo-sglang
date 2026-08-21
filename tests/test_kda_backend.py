@@ -293,3 +293,118 @@ def test_packed_kda_decode_matches_torch_reference(allow_neg_eigval):
         rtol=2e-2,
     )
     torch.testing.assert_close(state, expected_state, atol=2e-4, rtol=2e-4)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
+def test_packed_kda_decode_cuda_graph_replays_new_inputs():
+    torch.manual_seed(11)
+    device = torch.device("cuda")
+    batch_size, num_heads, key_dim, value_dim = 4, 8, 128, 128
+    num_slots = 6
+    dtype = torch.bfloat16
+    scale = key_dim**-0.5
+    kernel = object.__new__(OlmoPackedKDAKernel)
+    kernel.allow_neg_eigval = True
+
+    static_mixed_qkv = torch.randn(
+        batch_size,
+        2 * num_heads * key_dim + num_heads * value_dim,
+        device=device,
+        dtype=dtype,
+    )
+    static_gate = torch.randn(
+        batch_size, num_heads, key_dim, device=device, dtype=dtype
+    )
+    static_beta = torch.randn(batch_size, 1, num_heads, device=device, dtype=dtype)
+    a_log = torch.randn(num_heads, device=device, dtype=torch.float32)
+    dt_bias = torch.randn(num_heads, key_dim, device=device, dtype=torch.float32)
+    static_indices = torch.tensor([0, 2, 4, 5], device=device, dtype=torch.int64)
+    static_state = torch.randn(
+        num_slots,
+        num_heads,
+        value_dim,
+        key_dim,
+        device=device,
+        dtype=torch.float32,
+    )
+
+    warmup_stream = torch.cuda.Stream()
+    warmup_stream.wait_stream(torch.cuda.current_stream())
+    with torch.cuda.stream(warmup_stream):
+        kernel.packed_decode(
+            static_mixed_qkv,
+            static_gate,
+            static_beta,
+            A_log=a_log,
+            dt_bias=dt_bias,
+            scale=scale,
+            ssm_states=static_state,
+            cache_indices=static_indices,
+            num_v_heads=num_heads,
+            head_v_dim=value_dim,
+        )
+    torch.cuda.current_stream().wait_stream(warmup_stream)
+    torch.cuda.synchronize()
+
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph):
+        captured_output = kernel.packed_decode(
+            static_mixed_qkv,
+            static_gate,
+            static_beta,
+            A_log=a_log,
+            dt_bias=dt_bias,
+            scale=scale,
+            ssm_states=static_state,
+            cache_indices=static_indices,
+            num_v_heads=num_heads,
+            head_v_dim=value_dim,
+        )
+
+    replay_mixed_qkv = torch.randn_like(static_mixed_qkv)
+    replay_gate = torch.randn_like(static_gate)
+    replay_beta = torch.randn_like(static_beta)
+    replay_state = torch.randn_like(static_state)
+    expected_state = replay_state.clone()
+
+    q_end = num_heads * key_dim
+    k_end = 2 * q_end
+    query = replay_mixed_qkv[:, :q_end].reshape(batch_size, num_heads, key_dim).float()
+    key = (
+        replay_mixed_qkv[:, q_end:k_end].reshape(batch_size, num_heads, key_dim).float()
+    )
+    value = (
+        replay_mixed_qkv[:, k_end:].reshape(batch_size, num_heads, value_dim).float()
+    )
+    query = torch.nn.functional.normalize(query, dim=-1, eps=1e-6) * scale
+    key = torch.nn.functional.normalize(key, dim=-1, eps=1e-6)
+    decay = -a_log.exp()[None, :, None] * torch.nn.functional.softplus(
+        replay_gate.float() + dt_bias[None]
+    )
+    beta = 2.0 * replay_beta.reshape(batch_size, num_heads).float().sigmoid()
+    expected_output = torch.empty(
+        batch_size, num_heads, value_dim, device=device, dtype=torch.float32
+    )
+    for batch_index, slot in enumerate(static_indices.tolist()):
+        recurrent = expected_state[slot]
+        recurrent *= decay[batch_index].exp().unsqueeze(-2)
+        delta = value[batch_index] - torch.einsum(
+            "hvk,hk->hv", recurrent, key[batch_index]
+        )
+        delta *= beta[batch_index].unsqueeze(-1)
+        recurrent += torch.einsum("hv,hk->hvk", delta, key[batch_index])
+        expected_output[batch_index] = torch.einsum(
+            "hvk,hk->hv", recurrent, query[batch_index]
+        )
+
+    static_mixed_qkv.copy_(replay_mixed_qkv)
+    static_gate.copy_(replay_gate)
+    static_beta.copy_(replay_beta)
+    static_state.copy_(replay_state)
+    graph.replay()
+    torch.cuda.synchronize()
+
+    torch.testing.assert_close(
+        captured_output[0].float(), expected_output, atol=2e-2, rtol=2e-2
+    )
+    torch.testing.assert_close(static_state, expected_state, atol=2e-4, rtol=2e-4)
