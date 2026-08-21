@@ -51,9 +51,11 @@ confused with complete production serving support.
 - [ ] Exercise short multi-request rollouts through the same HTTP or embedded
   interface that MILES will use, including stop conditions and request
   cancellation.
-- [ ] Validate the RL weight-refresh workflow: export or transfer a new policy
-  checkpoint, reload it in SGLang, and confirm that generation changes without
-  stale KDA state crossing policy versions.
+- [x] Validate an idle policy-refresh boundary locally: establish cache reuse,
+  flush, reload weights, require the first new-version request to miss, and
+  require reuse to recover on the next request.
+- [ ] Validate the production RL weight transfer with changed actor weights on
+  every rollout replica and confirm generation changes at the new version.
 
 ### KDA serving features
 
@@ -67,9 +69,12 @@ confused with complete production serving support.
   states to SGLang's `extra_buffer` strategy without modifying SGLang or FLA.
   A 300-token local probe reuses the 256-token tracked prefix with overlap
   scheduling enabled and matches the uncached greedy output.
-- [ ] **RL radix lifecycle:** validate a production checkpoint, cancellation
-  under load, and mandatory cache invalidation across every policy weight
-  refresh before enabling the cache in MILES.
+- [x] **Policy-refresh invalidation:** establish a 256-token hit, flush the idle
+  engine, perform an actual checkpoint weight reload, require the first request
+  to miss, and observe a new 256-token hit on the next request.
+- [ ] **Production RL radix lifecycle:** validate a production checkpoint,
+  changed actor weights, cancellation under load, and the refresh across every
+  rollout replica before enabling the cache in MILES.
 - [ ] **Speculative decoding:** implement KDA target verification with
   per-proposal intermediate states and commit only the accepted prefix,
   including rollback and tree-branch behavior.
@@ -296,6 +301,24 @@ baseline could reuse the endpoint after explicit seeding, but not the repeated
 prompt sequentially, and required overlap scheduling to be disabled. Production
 acceptance still requires the real checkpoint, tokenizer, request distribution,
 and policy-refresh lifecycle.
+
+Exercise the policy-refresh boundary on the same long-prefix fixture:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m olmo_sglang.radix_smoke \
+  --model /tmp/olmo-sglang-radix-long \
+  --prompt-length 300 \
+  --max-new-tokens 4 \
+  --policy-refresh-probe \
+  --mamba-radix-cache-strategy extra_buffer
+```
+
+This performs a successful idle cache flush and an actual in-place reload of
+the tiny checkpoint. The validated cache counts were `[0, 256]` before refresh
+and `[0, 256]` afterward: old state did not cross the refresh, and cache reuse
+recovered immediately within the refreshed policy version. Reloading identical
+weights deliberately isolates cache lifecycle behavior; the production test
+must additionally transfer changed actor weights to every rollout replica.
 
 ## Local production-shaped parity loop
 
