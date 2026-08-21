@@ -238,6 +238,28 @@ must be nonzero. The cache-enabled engine resolves to SGLang's `no_buffer`
 Mamba radix strategy and disables overlap scheduling because this overlay does
 not yet support the extra-buffer strategy.
 
+Probe the same prompt three times on one GPU, both sequentially and as one
+simultaneous scheduler batch:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m olmo_sglang.radix_smoke \
+  --model /tmp/olmo-sglang-tiny-kda \
+  --input-ids 2 3 4 5 \
+  --max-new-tokens 4 \
+  --repeat-prompt-probe \
+  --repeats 3
+```
+
+The report contains three experiments. Plain sequential and simultaneous
+requests are observational: an earlier completion may store its KDA state past
+the prompt boundary, and recurrent state cannot be split out of a compressed
+radix edge the way per-token attention KV can. The third experiment first seeds
+`prompt[:-1]` with a throwaway one-token generation, then submits the three full
+prompts simultaneously. Every seeded request must report a nonzero
+`cached_tokens` count and identical greedy output. This is a small local model
+of both the current grouped-RL miss pattern and an explicit prefill-seeding
+strategy.
+
 ## Local production-shaped parity loop
 
 Use the independent tiny reference before spending a full-checkpoint cycle on
