@@ -12,6 +12,7 @@ does not need to be patched.
 - Native OLMo KDA prefill and cached decode through FLA 0.5.2.
 - Exact negative-eigenvalue semantics: raw beta logits use `2 * sigmoid(beta)`.
 - Unequal K/V head widths in the recurrent-state cache.
+- Experimental no-buffer radix caching of complete OLMo KDA prefix state.
 - A package-local FLA 0.5.2 compatibility shim for Triton 3.6 and newer.
 - Headwise Q/K normalization and optional elementwise attention output gate.
 - Peri-LN residual ordering.
@@ -25,9 +26,12 @@ does not need to be patched.
 The KDA implementation is a correctness-first serving path. It reuses SGLang's
 hybrid scheduler, convolution cache, and recurrent-state pool, but calls FLA
 0.5.2 for both prefill and decode so the model's beta semantics stay exact.
-Current limits are tensor parallel size 1, radix cache disabled, and no
-speculative target verification. This is suitable for parity work and initial
-RL rollouts, not yet the final optimized serving kernel.
+Its no-buffer radix path uses copy-on-write for both the convolution window and
+recurrent matrix. Current limits are tensor parallel size 1, no speculative
+target verification, and no validated cache invalidation across an RL policy
+weight refresh. Cache-enabled MILES rollouts remain gated on those production
+checkpoint and refresh checks. This is not yet the final optimized serving
+kernel.
 
 FLA is optional; attention-only checkpoints do not import it.
 
@@ -51,9 +55,15 @@ confused with complete production serving support.
 
 ### KDA serving features
 
-- [ ] **Radix cache:** snapshot and restore both the convolution window and
-  recurrent KDA matrix at prefix-tree branch points; validate reuse, branching,
-  eviction, and request isolation.
+- [x] **Radix state lifecycle:** copy both the convolution window and recurrent
+  KDA matrix at prefix-tree branch points; cover prefix hits, divergent branches,
+  eviction, request isolation, and cleared slot reuse in focused tests.
+- [x] **Local radix engine parity:** run a real repeated-prefix continuation
+  through the tiny hybrid KDA engine, observe nonzero `cached_tokens`, and match
+  the cache-disabled greedy continuation.
+- [ ] **RL radix lifecycle:** validate a production checkpoint, cancellation
+  under load, and mandatory cache invalidation across every policy weight
+  refresh before enabling the cache in MILES.
 - [ ] **Speculative decoding:** implement KDA target verification with
   per-proposal intermediate states and commit only the accepted prefix,
   including rollback and tree-branch behavior.
@@ -73,10 +83,9 @@ confused with complete production serving support.
 - [ ] Optionally add a slow PyTorch CPU reference recurrence for portable unit
   tests; production KDA serving remains GPU-oriented.
 
-Radix caching, speculative decoding, and TP>1 are not prerequisites for the
-first MILES integration. The immediate gate is real-checkpoint numerical
-correctness using TP=1, ordinary autoregressive decoding, and radix caching
-disabled.
+Speculative decoding and TP>1 are not prerequisites for the first MILES
+integration. The immediate radix gate is real-checkpoint numerical correctness
+and policy-refresh invalidation using TP=1 and ordinary autoregressive decoding.
 
 ## Install
 
@@ -212,6 +221,22 @@ PYTHONPATH=src .venv/bin/python examples/check_kda_recurrence.py
 It also confirms that enabling negative eigenvalues produces a nonzero result
 delta from ordinary KDA, so the test would catch accidentally dropping the
 `2 * sigmoid(beta)` behavior.
+
+Exercise the complete radix state lifecycle through the embedded engine. The
+command warms one prefix, continues it with a cache hit, recomputes that
+continuation in a cache-disabled engine, and requires identical greedy output:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m olmo_sglang.radix_smoke \
+  --model /tmp/olmo-sglang-tiny-kda \
+  --input-ids 2 3 4 5 \
+  --max-new-tokens 4
+```
+
+The JSON result includes each request's `cached_tokens`; the cached continuation
+must be nonzero. The cache-enabled engine resolves to SGLang's `no_buffer`
+Mamba radix strategy and disables overlap scheduling because this overlay does
+not yet support the extra-buffer strategy.
 
 ## Local production-shaped parity loop
 

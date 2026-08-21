@@ -277,8 +277,9 @@ def register_olmo_kda_backend() -> None:
             config_class=_OlmoKDAConfig,
             backend_class_name="olmo_sglang.kda_backend.OlmoKDAAttnBackend",
             arch_names=["Olmo3MoeForCausalLM"],
-            uses_mamba_radix_cache=False,
+            uses_mamba_radix_cache=True,
             support_mamba_cache=True,
+            support_mamba_cache_extra_buffer=False,
         )
     )
     _REGISTERED = True

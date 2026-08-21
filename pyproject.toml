@@ -16,6 +16,7 @@ Repository = "https://github.com/allenai/olmo-sglang"
 [project.scripts]
 olmo-sglang-smoke = "olmo_sglang.infer:main"
 olmo-sglang-parity = "olmo_sglang.parity:main"
+olmo-sglang-radix-smoke = "olmo_sglang.radix_smoke:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
