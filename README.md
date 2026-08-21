@@ -37,9 +37,9 @@ explicit tree parents, while changed-weight numerical attribution across an RL
 policy refresh remains open. The idle refresh lifecycle, production MILES
 refresh path, and breadth-one NGRAM target verification are validated. Tree
 state traversal has focused recurrence parity, and the GPU verifier is fused,
-free of host synchronization, and validated under CUDA-graph replay. No
-branching draft engine has run end to end yet, and speculative performance has
-not been screened. This is not yet the final optimized serving kernel.
+free of host synchronization, and validated under CUDA-graph replay. Fixed
+breadth-two NGRAM branching also passes end to end; whole-engine speculative
+graphs and performance remain unscreened. This is not the final serving kernel.
 
 FLA is optional; attention-only checkpoints do not import it.
 
@@ -93,10 +93,14 @@ confused with complete production serving support.
   explicit tree parents, OLMo's optional `2 * sigmoid(beta)` semantics, invalid
   cache slots, and CUDA-graph replay. The eager CPU path remains the independent
   correctness oracle.
-- [ ] **Production speculative screen:** run a branching draft algorithm end to
-  end, enable the whole-engine speculative CUDA-graph path, and measure proposed
-  tokens, acceptance, verifier latency, and net throughput against ordinary
-  decoding.
+- [x] **Branching speculative engine:** prime NGRAM with two divergent
+  continuations, require its host corpus to expose two leaf paths, and run the
+  same fixed-breadth-two tree through the embedded KDA engine. The local run
+  matched all 16 ordinary greedy IDs across 15 verify passes and 45 proposals.
+- [ ] **Production speculative performance:** enable the whole-engine
+  speculative CUDA-graph path and measure proposed tokens, acceptance, verifier
+  latency, and net throughput against ordinary decoding on a trained checkpoint
+  with a useful draft source.
 - [x] **Tensor parallelism greater than one:** shard the KDA projections,
   unequal-width K/V heads, convolution windows, and recurrent state correctly;
   compare TP=1 and TP=2 greedy generation plus chosen-token log probabilities.
@@ -428,6 +432,19 @@ PYTHONPATH=src uv run --no-sync python -m olmo_sglang.speculative_smoke \
   --context-length 64
 ```
 
+To force a real branch, prime two divergent continuations and fix breadth at
+two. The harness independently requires that the same host corpus has two leaf
+paths before it launches the engine:
+
+```bash
+PYTHONPATH=src uv run --no-sync python -m olmo_sglang.speculative_smoke \
+  --model /path/to/olmo-hf-checkpoint \
+  --input-ids 1 2 3 \
+  --corpus-prompt 1 2 3 4 5 6 7 \
+  --corpus-prompt 1 2 3 8 9 10 11 \
+  --ngram-breadth 2 --max-new-tokens 16 --context-length 64
+```
+
 Ninja is needed for SGLang's bundled NGRAM corpus JIT extension; it is a runtime
 environment prerequisite rather than an `olmo-sglang` package dependency. The
 JSON report includes `spec_verify_ct`, proposed and accepted draft counts,
@@ -436,7 +453,7 @@ synthetic run performed 14 verify passes, proposed 42 drafts, accepted one, and
 exactly reproduced the ordinary output IDs. Low acceptance is unsurprising for
 random weights; this probe is a correctness gate, not a speed benchmark.
 
-This smoke intentionally uses a linear draft chain. The verifier also accepts
+The default smoke uses a linear draft chain. The verifier also accepts
 SGLang's explicit tree-parent tensor and resumes each node from its parent's
 snapshot; a focused test checks that recurrence against an independent
 reference. CUDA uses a fused overlay-owned Triton recurrence and writes every
@@ -444,10 +461,11 @@ post-token state to SGLang's intermediate state pool without mutating the
 committed pool; CPU retains the eager reference implementation. Kernel-level
 CUDA-graph replay with changed inputs and state is covered locally. SGLang's
 central commit then selects the accepted state, so rejection and rollback use
-its normal lifecycle. CUDA graphs remain disabled in this end-to-end smoke. A
-branching NGRAM or EAGLE run, whole-engine speculative graph validation, and a
-performance screen remain TODOs. The repository's 8-wide tiny full-attention
-fixture is below
+its normal lifecycle. The fixed-breadth-two run reports two independently
+verified leaf paths, 15 target-verification passes, 45 proposals, and exact
+16-token greedy parity. CUDA graphs remain disabled in both end-to-end smokes;
+whole-engine speculative graph validation and a performance screen remain
+TODOs. The repository's 8-wide tiny full-attention fixture is below
 FlashInfer's supported production head sizes, so use a production-shaped local
 fixture or the real checkpoint for this command.
 

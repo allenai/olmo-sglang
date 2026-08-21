@@ -1,7 +1,7 @@
 # Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Compare greedy OLMo KDA inference with breadth-one NGRAM speculation."""
+"""Compare greedy OLMo KDA inference with NGRAM speculation."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ def _create_engine(
     context_length: int,
     speculative: bool,
     mem_fraction_static: float,
+    ngram_breadth: int = 1,
 ) -> Any:
     """Create one eager embedded engine for the matched greedy A/B."""
 
@@ -32,8 +33,8 @@ def _create_engine(
         kwargs.update(
             speculative_algorithm="NGRAM",
             speculative_num_draft_tokens=4,
-            speculative_ngram_min_bfs_breadth=1,
-            speculative_ngram_max_bfs_breadth=1,
+            speculative_ngram_min_bfs_breadth=ngram_breadth,
+            speculative_ngram_max_bfs_breadth=ngram_breadth,
         )
     return sgl.Engine(
         model_path=str(model_path),
@@ -62,6 +63,34 @@ def _generate(engine: Any, input_ids: list[int], max_new_tokens: int) -> dict[st
     )
 
 
+def _count_ngram_leaf_paths(
+    input_ids: list[int],
+    corpus_prompts: list[list[int]],
+    *,
+    ngram_breadth: int,
+) -> int:
+    """Return the leaf count for the exact host-side NGRAM fixture."""
+
+    from sglang.srt.speculative.cpp_ngram.ngram_corpus import NgramCorpus
+
+    draft_token_num = 4
+    corpus = NgramCorpus(
+        min_bfs_breadth=ngram_breadth,
+        max_bfs_breadth=ngram_breadth,
+        draft_token_num=draft_token_num,
+    )
+    corpus.batch_put(corpus_prompts)
+    corpus.synchronize()
+    draft_ids, tree_mask = corpus.batch_get(
+        ["olmo-sglang-branch-probe"],
+        [input_ids],
+        [len(input_ids)],
+    )
+    tokens = draft_ids.reshape(-1, draft_token_num)[0].tolist()
+    mask = tree_mask.reshape(-1, draft_token_num, draft_token_num)[0].tolist()
+    return len(corpus.leaf_paths_from_mask(tokens, mask))
+
+
 def run_speculative_smoke(
     model_path: Path,
     input_ids: list[int],
@@ -69,14 +98,28 @@ def run_speculative_smoke(
     *,
     context_length: int,
     mem_fraction_static: float = 0.25,
+    ngram_breadth: int = 1,
+    corpus_prompts: list[list[int]] | None = None,
 ) -> dict[str, Any]:
-    """Require exact greedy parity and evidence of target verification.
+    """Require exact greedy parity and evidence of NGRAM target verification.
 
-    The speculative engine uses a breadth-one NGRAM corpus, which produces a
-    linear draft chain. Tree branching is deliberately outside this overlay's
-    current verifier contract.
+    Breadth one produces a linear draft chain. Larger fixed breadths can exercise
+    a branching tree after ``corpus_prompts`` seed divergent continuations.
     """
 
+    if ngram_breadth < 1:
+        raise ValueError("ngram_breadth must be positive")
+    branch_leaf_paths = 1
+    if ngram_breadth > 1:
+        if not corpus_prompts:
+            raise ValueError("branching NGRAM smoke requires corpus_prompts")
+        branch_leaf_paths = _count_ngram_leaf_paths(
+            input_ids,
+            corpus_prompts,
+            ngram_breadth=ngram_breadth,
+        )
+        if branch_leaf_paths < 2:
+            raise AssertionError("NGRAM corpus fixture did not produce a branch")
     register()
     baseline_engine = _create_engine(
         model_path,
@@ -94,8 +137,11 @@ def run_speculative_smoke(
         context_length=context_length,
         speculative=True,
         mem_fraction_static=mem_fraction_static,
+        ngram_breadth=ngram_breadth,
     )
     try:
+        for corpus_prompt in corpus_prompts or []:
+            _generate(speculative_engine, corpus_prompt, 1)
         speculative = _generate(speculative_engine, input_ids, max_new_tokens)
     finally:
         speculative_engine.shutdown()
@@ -122,6 +168,9 @@ def run_speculative_smoke(
         "spec_num_correct_drafts": int(metadata.get("spec_num_correct_drafts", 0)),
         "spec_accept_rate": float(metadata["spec_accept_rate"]),
         "spec_accept_length": float(metadata["spec_accept_length"]),
+        "ngram_breadth": ngram_breadth,
+        "corpus_prompt_count": len(corpus_prompts or []),
+        "branch_leaf_paths": branch_leaf_paths,
     }
 
 
@@ -135,6 +184,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--context-length", type=int, default=64)
     parser.add_argument("--mem-fraction-static", type=float, default=0.25)
+    parser.add_argument("--ngram-breadth", type=int, default=1)
+    parser.add_argument(
+        "--corpus-prompt",
+        action="append",
+        nargs="+",
+        type=int,
+        help="Token-ID prompt used to prime the NGRAM corpus; repeat as needed",
+    )
     return parser.parse_args()
 
 
@@ -157,6 +214,8 @@ def main() -> None:
         args.max_new_tokens,
         context_length=args.context_length,
         mem_fraction_static=args.mem_fraction_static,
+        ngram_breadth=args.ngram_breadth,
+        corpus_prompts=args.corpus_prompt,
     )
     LOGGER.info("%s", json.dumps(report, sort_keys=True))
 
