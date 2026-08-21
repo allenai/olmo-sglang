@@ -12,6 +12,8 @@ does not need to be patched.
 - Native OLMo KDA prefill and cached decode through FLA 0.5.2.
 - Exact negative-eigenvalue semantics: raw beta logits use `2 * sigmoid(beta)`.
 - Unequal K/V head widths in the recurrent-state cache.
+- Standard tensor parallel sharding for KDA projections, convolution windows,
+  and recurrent state.
 - Experimental branch-capable radix caching of OLMo KDA prefix state.
 - A package-local FLA 0.5.2 compatibility shim for Triton 3.6 and newer.
 - Headwise Q/K normalization and optional elementwise attention output gate.
@@ -28,13 +30,14 @@ hybrid scheduler, convolution cache, and recurrent-state pool, but calls FLA
 0.5.2 for both prefill and decode so the model's beta semantics stay exact.
 Its radix path uses FLA's intermediate recurrent states plus SGLang's
 `extra_buffer` strategy to snapshot branch points, with copy-on-write for both
-the convolution window and recurrent matrix. Current limits are tensor parallel
-size 1, chain-only correctness-first speculative verification, and no
-changed-weight numerical attribution across an RL policy refresh. The idle
-refresh lifecycle, production MILES refresh path, and breadth-one NGRAM target
-verification are validated. The verifier is not yet a fused production kernel
-and tree speculation remains unsupported. This is not yet the final optimized
-serving kernel.
+the convolution window and recurrent matrix. Tensor parallelism currently
+requires matching model/attention TP groups and head counts divisible by the TP
+size. Other limits are chain-only correctness-first speculative verification
+and no changed-weight numerical attribution across an RL policy refresh. The
+idle refresh lifecycle, production MILES refresh path, and breadth-one NGRAM
+target verification are validated. The verifier is not yet a fused production
+kernel and tree speculation remains unsupported. This is not yet the final
+optimized serving kernel.
 
 FLA is optional; attention-only checkpoints do not import it.
 
@@ -84,9 +87,11 @@ confused with complete production serving support.
 - [ ] **Production speculative kernel:** fuse the chain verifier, remove its
   eager host synchronization/PyTorch loop, support CUDA-graph replay, and add
   tree-ancestor traversal before enabling branching algorithms.
-- [ ] **Tensor parallelism greater than one:** shard the KDA projections,
+- [x] **Tensor parallelism greater than one:** shard the KDA projections,
   unequal-width K/V heads, convolution windows, and recurrent state correctly;
-  add TP=1 versus TP=2 numerical comparisons.
+  compare TP=1 and TP=2 greedy generation plus chosen-token log probabilities.
+  A production checkpoint matched all eight greedy output IDs; chosen-token
+  log probabilities differed by at most 0.04458 and by 0.02373 on average.
 - [x] Validate mixed-length and long-prefix KDA batching, 64-token chunked
   prefill, in-flight and queued cancellation, and forced scheduler retraction.
   Organic retraction under production memory pressure remains a load-test item.
@@ -113,7 +118,8 @@ Speculative decoding and TP>1 are not prerequisites for the first MILES
 integration. Chain verification now has a correctness path, but ordinary
 autoregressive decoding remains the production default until the verifier is
 fused and benchmarked. The immediate radix gate is real-checkpoint numerical
-correctness and policy-refresh invalidation using TP=1.
+correctness and policy-refresh invalidation in the current MILES topology of
+TP=1 replicas.
 
 ## Install
 
@@ -236,7 +242,7 @@ The deterministic result on an RTX 4090 is:
 
 ```text
 input_ids=[2, 3, 4, 5]
-sglang_output_ids=[53, 10, 45, 39]
+sglang_output_ids=[53, 15, 39, 25]
 ```
 
 The recurrence harness verifies that prompt prefill followed by cached
@@ -429,6 +435,35 @@ or EAGLE trees, a fused verifier, and speculative performance validation remain
 TODOs. The repository's 8-wide tiny full-attention fixture is below
 FlashInfer's supported production head sizes, so use a production-shaped local
 fixture or the real checkpoint for this command.
+
+## Exercise tensor parallelism
+
+The packaged TP smoke test starts a TP=1 control and then a standard TP engine,
+runs the same greedy token-ID request through both, and requires exact output
+token parity. It also reports the max and mean absolute difference between the
+chosen-token log probabilities:
+
+```bash
+PYTHONPATH=src uv run --no-sync python -m olmo_sglang.tp_smoke \
+  --model /path/to/olmo-hf-checkpoint \
+  --tp-size 2 \
+  --prompt-length 32 \
+  --max-new-tokens 8 \
+  --context-length 512 \
+  --mem-fraction-static 0.25
+```
+
+The harness disables radix reuse and CUDA graphs, and pins Triton attention
+with one-token pages, so only tensor sharding changes. The standard TP path
+requires the model and attention TP groups to match and both KDA key/value head
+counts to divide evenly by `tp-size`. Distinct attention TP, DCP, and a TP-aware
+MILES replica topology remain separate work. The current MILES launcher still
+uses eight independent TP=1 inference replicas.
+
+On the production SFT checkpoint, TP=1 and TP=2 returned the same greedy token
+IDs, `[3505, 198, 5, 6, 7, 8, 5, 6]`. The chosen-token log-probability max and
+mean absolute differences were 0.04458 and 0.02373, respectively. Treat this as
+a functional greedy-parity gate, not a claim of bitwise numerical equivalence.
 
 ## Local production-shaped parity loop
 
