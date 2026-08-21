@@ -12,7 +12,7 @@ does not need to be patched.
 - Native OLMo KDA prefill and cached decode through FLA 0.5.2.
 - Exact negative-eigenvalue semantics: raw beta logits use `2 * sigmoid(beta)`.
 - Unequal K/V head widths in the recurrent-state cache.
-- Experimental no-buffer radix caching of complete OLMo KDA prefix state.
+- Experimental branch-capable radix caching of OLMo KDA prefix state.
 - A package-local FLA 0.5.2 compatibility shim for Triton 3.6 and newer.
 - Headwise Q/K normalization and optional elementwise attention output gate.
 - Peri-LN residual ordering.
@@ -26,8 +26,10 @@ does not need to be patched.
 The KDA implementation is a correctness-first serving path. It reuses SGLang's
 hybrid scheduler, convolution cache, and recurrent-state pool, but calls FLA
 0.5.2 for both prefill and decode so the model's beta semantics stay exact.
-Its no-buffer radix path uses copy-on-write for both the convolution window and
-recurrent matrix. Current limits are tensor parallel size 1, no speculative
+Its radix path uses FLA's intermediate recurrent states plus SGLang's
+`extra_buffer` strategy to snapshot branch points, with copy-on-write for both
+the convolution window and recurrent matrix. Current limits are tensor parallel
+size 1, no speculative
 target verification, and no validated cache invalidation across an RL policy
 weight refresh. Cache-enabled MILES rollouts remain gated on those production
 checkpoint and refresh checks. This is not yet the final optimized serving
@@ -61,6 +63,10 @@ confused with complete production serving support.
 - [x] **Local radix engine parity:** run a real repeated-prefix continuation
   through the tiny hybrid KDA engine, observe nonzero `cached_tokens`, and match
   the cache-disabled greedy continuation.
+- [x] **Branch-capable KDA snapshots:** expose FLA's per-chunk intermediate KDA
+  states to SGLang's `extra_buffer` strategy without modifying SGLang or FLA.
+  A 300-token local probe reuses the 256-token tracked prefix with overlap
+  scheduling enabled and matches the uncached greedy output.
 - [ ] **RL radix lifecycle:** validate a production checkpoint, cancellation
   under load, and mandatory cache invalidation across every policy weight
   refresh before enabling the cache in MILES.
@@ -230,13 +236,15 @@ continuation in a cache-disabled engine, and requires identical greedy output:
 PYTHONPATH=src .venv/bin/python -m olmo_sglang.radix_smoke \
   --model /tmp/olmo-sglang-tiny-kda \
   --input-ids 2 3 4 5 \
-  --max-new-tokens 4
+  --max-new-tokens 4 \
+  --mamba-radix-cache-strategy no_buffer
 ```
 
 The JSON result includes each request's `cached_tokens`; the cached continuation
-must be nonzero. The cache-enabled engine resolves to SGLang's `no_buffer`
-Mamba radix strategy and disables overlap scheduling because this overlay does
-not yet support the extra-buffer strategy.
+must be nonzero. This short fixture explicitly uses SGLang's endpoint-only
+`no_buffer` baseline because it does not cross an intermediate-state tracking
+boundary. For OLMo KDA, `auto` now resolves to the branch-capable `extra_buffer`
+strategy.
 
 Probe the same prompt three times on one GPU, both sequentially and as one
 simultaneous scheduler batch:
@@ -247,7 +255,8 @@ PYTHONPATH=src .venv/bin/python -m olmo_sglang.radix_smoke \
   --input-ids 2 3 4 5 \
   --max-new-tokens 4 \
   --repeat-prompt-probe \
-  --repeats 3
+  --repeats 3 \
+  --mamba-radix-cache-strategy no_buffer
 ```
 
 The report contains three experiments. Plain sequential and simultaneous
@@ -259,6 +268,34 @@ prompts simultaneously. Every seeded request must report a nonzero
 `cached_tokens` count and identical greedy output. This is a small local model
 of both the current grouped-RL miss pattern and an explicit prefill-seeding
 strategy.
+
+For native branch-point validation, generate a longer-context fixture and use
+a prompt long enough to cross both FLA's 64-token KDA chunk boundaries and
+SGLang's default 256-token state-tracking interval:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/create_tiny_parity_checkpoint.py \
+  /tmp/olmo-sglang-radix-long \
+  --profile hybrid-moe \
+  --max-position-embeddings 512
+
+PYTHONPATH=src .venv/bin/python -m olmo_sglang.radix_smoke \
+  --model /tmp/olmo-sglang-radix-long \
+  --prompt-length 300 \
+  --max-new-tokens 4 \
+  --repeat-prompt-probe \
+  --repeats 3 \
+  --mamba-radix-cache-strategy extra_buffer
+```
+
+The generated checkpoint and prompt are synthetic and intended only for a
+controlled cache-mechanism test. In the validated run, the second and third
+sequential requests and all three pre-seeded simultaneous requests reused 256
+tokens; every path generated `[15, 23, 24, 23]`. The matched `no_buffer`
+baseline could reuse the endpoint after explicit seeding, but not the repeated
+prompt sequentially, and required overlap scheduling to be disabled. Production
+acceptance still requires the real checkpoint, tokenizer, request distribution,
+and policy-refresh lifecycle.
 
 ## Local production-shaped parity loop
 

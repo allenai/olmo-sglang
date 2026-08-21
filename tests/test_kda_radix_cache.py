@@ -119,19 +119,25 @@ def _assert_state_equal(
     torch.testing.assert_close(pool.temporal[:, index], expected_temporal)
 
 
-def test_registration_enables_no_buffer_mamba_radix_cache(monkeypatch):
+def test_registration_enables_extra_buffer_mamba_radix_cache(monkeypatch):
     captured = []
     import sglang.srt.configs.linear_attn_model_registry as registry
+    from sglang.srt.arg_groups import overrides
 
     monkeypatch.setattr(registry, "register_linear_attn_model", captured.append)
     monkeypatch.setattr(kda_backend, "_REGISTERED", False)
+    monkeypatch.setattr(overrides, "_MAMBA_EXTRA_BUFFER_ARCHS", frozenset())
 
     register_olmo_kda_backend()
 
     assert len(captured) == 1
     assert captured[0].uses_mamba_radix_cache is True
     assert captured[0].support_mamba_cache is True
-    assert captured[0].support_mamba_cache_extra_buffer is False
+    assert captured[0].support_mamba_cache_extra_buffer is True
+    assert "Olmo3MoeForCausalLM" in overrides._MAMBA_EXTRA_BUFFER_ARCHS
+    assert overrides.supports_mamba_cache_extra_buffer(
+        SimpleNamespace(linear_attn_backend="triton"), "Olmo3MoeForCausalLM"
+    )
 
 
 def test_radix_prefix_copy_branches_and_evicts_complete_olmo_kda_state(monkeypatch):

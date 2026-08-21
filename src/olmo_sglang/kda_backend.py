@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,6 +28,7 @@ from sglang.srt.layers.attention.linear.kernels.kernel_backend import (
 )
 
 EXPECTED_FLA_VERSION = "0.5.2"
+_OLMO_MODEL_ARCHITECTURE = "Olmo3MoeForCausalLM"
 LOGGER = logging.getLogger(__name__)
 _REGISTERED = False
 _FLA_PATCHED = False
@@ -260,6 +262,24 @@ class _OlmoKDAConfig(metaclass=_OlmoKDAConfigMatcher):
     """Virtual config type matching only supported OLMo KDA checkpoints."""
 
 
+def _enable_olmo_extra_buffer_capability() -> None:
+    """Bridge OLMo into SGLang's current extra-buffer architecture gate.
+
+    ``LinearAttnModelSpec`` exposes ``support_mamba_cache_extra_buffer``, but
+    SGLang 8f3d3a31f4 still validates the strategy against a private built-in
+    architecture set. Extend that set in memory until the registry field is
+    consumed by upstream capability resolution. No SGLang source is modified.
+    """
+
+    from sglang.srt.arg_groups import overrides
+
+    extra_buffer_archs = getattr(overrides, "_MAMBA_EXTRA_BUFFER_ARCHS", None)
+    if extra_buffer_archs is not None:
+        overrides._MAMBA_EXTRA_BUFFER_ARCHS = extra_buffer_archs | {
+            _OLMO_MODEL_ARCHITECTURE
+        }
+
+
 def register_olmo_kda_backend() -> None:
     """Register OLMo's custom KDA cache geometry and backend with SGLang."""
 
@@ -272,14 +292,15 @@ def register_olmo_kda_backend() -> None:
         register_linear_attn_model,
     )
 
+    _enable_olmo_extra_buffer_capability()
     register_linear_attn_model(
         LinearAttnModelSpec(
             config_class=_OlmoKDAConfig,
             backend_class_name="olmo_sglang.kda_backend.OlmoKDAAttnBackend",
-            arch_names=["Olmo3MoeForCausalLM"],
+            arch_names=[_OLMO_MODEL_ARCHITECTURE],
             uses_mamba_radix_cache=True,
             support_mamba_cache=True,
-            support_mamba_cache_extra_buffer=False,
+            support_mamba_cache_extra_buffer=True,
         )
     )
     _REGISTERED = True
@@ -359,22 +380,26 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         beta = raw_beta.reshape(q.shape[0], q.shape[1], v.shape[2]).float().sigmoid()
         if self.allow_neg_eigval:
             beta = beta * 2.0
-        result = chunk_kda(
-            q=q,
-            k=k,
-            v=v,
-            g=raw_gate,
-            beta=beta,
-            A_log=A_log.reshape(-1),
-            dt_bias=dt_bias.reshape(-1),
-            initial_state=initial_state,
-            output_final_state=True,
-            use_qk_l2norm_in_kernel=True,
-            use_gate_in_kernel=True,
-            return_intermediate_states=return_intermediate_states,
-            transpose_state_layout=True,
-            cu_seqlens=query_start_loc,
+        inference_context = (
+            torch.inference_mode() if return_intermediate_states else nullcontext()
         )
+        with inference_context:
+            result = chunk_kda(
+                q=q,
+                k=k,
+                v=v,
+                g=raw_gate,
+                beta=beta,
+                A_log=A_log.reshape(-1),
+                dt_bias=dt_bias.reshape(-1),
+                initial_state=initial_state,
+                output_final_state=True,
+                use_qk_l2norm_in_kernel=True,
+                use_gate_in_kernel=True,
+                return_intermediate_states=return_intermediate_states,
+                transpose_state_layout=True,
+                cu_seqlens=query_start_loc,
+            )
         output, final_state = result[:2]
         self._commit_final_state(ssm_states, cache_indices, final_state, valid)
         if not valid.all():

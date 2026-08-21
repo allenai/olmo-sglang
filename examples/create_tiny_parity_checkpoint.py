@@ -41,7 +41,11 @@ def _randn(shape: tuple[int, ...], generator: torch.Generator) -> torch.Tensor:
     )
 
 
-def _config(profile: str, tokenizer: PreTrainedTokenizerFast) -> dict[str, Any]:
+def _config(
+    profile: str,
+    tokenizer: PreTrainedTokenizerFast,
+    max_position_embeddings: int = 64,
+) -> dict[str, Any]:
     layer_types = {
         "attention-dense": ["full_attention"],
         "kda-dense": ["linear_attention"],
@@ -85,7 +89,7 @@ def _config(profile: str, tokenizer: PreTrainedTokenizerFast) -> dict[str, Any]:
         "linear_num_key_heads": 4,
         "linear_num_value_heads": 4,
         "linear_value_head_dim": 16,
-        "max_position_embeddings": 64,
+        "max_position_embeddings": max_position_embeddings,
         "model_type": "llama",
         "moe_intermediate_size": 20,
         "n_routed_experts": 4,
@@ -342,14 +346,18 @@ def _add_full_attention(
     )
 
 
-def build_checkpoint(output_dir: Path, *, profile: str) -> None:
+def build_checkpoint(
+    output_dir: Path, *, profile: str, max_position_embeddings: int = 64
+) -> None:
     """Write one strict HF-layout checkpoint and its tokenizer contract."""
 
     if profile not in PROFILES:
         raise ValueError(f"unknown profile {profile!r}")
+    if max_position_embeddings <= 0:
+        raise ValueError("max_position_embeddings must be positive")
     output_dir.mkdir(parents=True, exist_ok=True)
     tokenizer = _build_tokenizer(output_dir)
-    config = _config(profile, tokenizer)
+    config = _config(profile, tokenizer, max_position_embeddings)
     (output_dir / "config.json").write_text(
         json.dumps(config, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -437,9 +445,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output_dir", type=Path)
     parser.add_argument("--profile", choices=PROFILES, default="hybrid-moe")
+    parser.add_argument("--max-position-embeddings", type=int, default=64)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    build_checkpoint(args.output_dir, profile=args.profile)
+    build_checkpoint(
+        args.output_dir,
+        profile=args.profile,
+        max_position_embeddings=args.max_position_embeddings,
+    )
 
 
 if __name__ == "__main__":

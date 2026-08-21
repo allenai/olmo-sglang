@@ -155,11 +155,14 @@ def test_fla_constexpr_shim_rewrites_on_first_launcher_call(monkeypatch):
 
 def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch):
     calls = []
+    inference_modes = []
+    intermediate_state = torch.zeros(1, 1, 1, 3, 2)
 
     def chunk_kda(**kwargs):
         calls.append(kwargs)
+        inference_modes.append(torch.is_inference_mode_enabled())
         output = torch.zeros_like(kwargs["v"])
-        return output, kwargs["initial_state"] + 1
+        return output, kwargs["initial_state"] + 1, intermediate_state
 
     fla = ModuleType("fla")
     ops = ModuleType("fla.ops")
@@ -181,7 +184,7 @@ def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch):
     raw_beta = torch.tensor([[[0.0], [1.0]]])
     state_pool = torch.zeros(1, 1, 3, 2)
 
-    kernel.extend(
+    result = kernel.extend(
         q,
         q,
         v,
@@ -192,6 +195,7 @@ def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch):
         ssm_states=state_pool,
         cache_indices=torch.tensor([0]),
         query_start_loc=torch.tensor([0, 2]),
+        return_intermediate_states=True,
     )
 
     expected_beta = raw_beta.float().sigmoid() * 2.0
@@ -201,4 +205,6 @@ def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch):
     assert "use_beta_sigmoid_in_kernel" not in calls[0]
     assert "allow_neg_eigval" not in calls[0]
     assert calls[0]["initial_state"].shape == (1, 1, 3, 2)
+    assert inference_modes == [True]
+    assert result[1] is intermediate_state
     torch.testing.assert_close(state_pool, torch.ones_like(state_pool))

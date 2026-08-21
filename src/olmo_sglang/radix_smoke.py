@@ -16,23 +16,34 @@ from olmo_sglang import register
 LOGGER = logging.getLogger(__name__)
 
 
-def _create_engine(model_path: Path, *, disable_radix_cache: bool) -> Any:
+def _create_engine(
+    model_path: Path,
+    *,
+    disable_radix_cache: bool,
+    mamba_radix_cache_strategy: str,
+    context_length: int | None,
+) -> Any:
     """Create the correctness-first tiny-checkpoint SGLang engine."""
 
     import sglang as sgl
 
+    if context_length is None:
+        config = json.loads((model_path / "config.json").read_text(encoding="utf-8"))
+        context_length = int(config["max_position_embeddings"])
     return sgl.Engine(
         model_path=str(model_path),
         trust_remote_code=True,
         skip_tokenizer_init=True,
-        dtype="float16",
+        dtype="auto",
         cuda_graph_backend_decode="disabled",
         cuda_graph_backend_prefill="disabled",
         disable_radix_cache=disable_radix_cache,
+        mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+        disable_overlap_schedule=mamba_radix_cache_strategy == "no_buffer",
         attention_backend="torch_native",
-        context_length=32,
-        max_total_tokens=64,
-        max_mamba_cache_size=4,
+        context_length=context_length,
+        max_total_tokens=max(64, context_length * 4),
+        max_mamba_cache_size=32,
         mem_fraction_static=0.15,
     )
 
@@ -71,7 +82,12 @@ def _generate_batch(
 
 
 def run_radix_smoke(
-    model_path: Path, input_ids: list[int], max_new_tokens: int
+    model_path: Path,
+    input_ids: list[int],
+    max_new_tokens: int,
+    *,
+    mamba_radix_cache_strategy: str = "auto",
+    context_length: int | None = None,
 ) -> dict[str, Any]:
     """Compare a cache-hit continuation with an uncached continuation.
 
@@ -93,7 +109,12 @@ def run_radix_smoke(
     """
 
     register()
-    cached_engine = _create_engine(model_path, disable_radix_cache=False)
+    cached_engine = _create_engine(
+        model_path,
+        disable_radix_cache=False,
+        mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+        context_length=context_length,
+    )
     try:
         warm = _generate(cached_engine, input_ids, max_new_tokens)
         continuation_input = input_ids + warm["output_ids"]
@@ -101,7 +122,12 @@ def run_radix_smoke(
     finally:
         cached_engine.shutdown()
 
-    uncached_engine = _create_engine(model_path, disable_radix_cache=True)
+    uncached_engine = _create_engine(
+        model_path,
+        disable_radix_cache=True,
+        mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+        context_length=context_length,
+    )
     try:
         uncached = _generate(uncached_engine, continuation_input, max_new_tokens)
     finally:
@@ -122,6 +148,9 @@ def run_repeated_prompt_probe(
     input_ids: list[int],
     max_new_tokens: int,
     repeats: int,
+    *,
+    mamba_radix_cache_strategy: str = "auto",
+    context_length: int | None = None,
 ) -> dict[str, Any]:
     """Compare sequential and simultaneous submissions of one prompt.
 
@@ -151,7 +180,12 @@ def run_repeated_prompt_probe(
         raise ValueError("input_ids must contain at least two tokens")
 
     register()
-    sequential_engine = _create_engine(model_path, disable_radix_cache=False)
+    sequential_engine = _create_engine(
+        model_path,
+        disable_radix_cache=False,
+        mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+        context_length=context_length,
+    )
     try:
         sequential = [
             _generate(sequential_engine, input_ids, max_new_tokens)
@@ -160,7 +194,12 @@ def run_repeated_prompt_probe(
     finally:
         sequential_engine.shutdown()
 
-    simultaneous_engine = _create_engine(model_path, disable_radix_cache=False)
+    simultaneous_engine = _create_engine(
+        model_path,
+        disable_radix_cache=False,
+        mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+        context_length=context_length,
+    )
     try:
         simultaneous = _generate_batch(
             simultaneous_engine, input_ids, max_new_tokens, repeats
@@ -168,7 +207,12 @@ def run_repeated_prompt_probe(
     finally:
         simultaneous_engine.shutdown()
 
-    seeded_engine = _create_engine(model_path, disable_radix_cache=False)
+    seeded_engine = _create_engine(
+        model_path,
+        disable_radix_cache=False,
+        mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+        context_length=context_length,
+    )
     try:
         seed = _generate(seeded_engine, input_ids[:-1], 1)
         seeded_simultaneous = _generate_batch(
@@ -191,6 +235,7 @@ def run_repeated_prompt_probe(
             f"seeded_simultaneous={seeded_simultaneous!r}"
         )
     return {
+        "mamba_radix_cache_strategy": mamba_radix_cache_strategy,
         "sequential": sequential,
         "simultaneous": simultaneous,
         "seeded_simultaneous": {"seed": seed, "requests": seeded_simultaneous},
@@ -203,7 +248,22 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--input-ids", type=int, nargs="+", default=[2, 3, 4, 5])
+    parser.add_argument(
+        "--prompt-length",
+        type=int,
+        help="Generate deterministic synthetic input IDs of this length.",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=4)
+    parser.add_argument(
+        "--context-length",
+        type=int,
+        help="Override the checkpoint's max_position_embeddings.",
+    )
+    parser.add_argument(
+        "--mamba-radix-cache-strategy",
+        choices=("auto", "no_buffer", "extra_buffer", "extra_buffer_lazy"),
+        default="auto",
+    )
     parser.add_argument(
         "--repeat-prompt-probe",
         action="store_true",
@@ -219,12 +279,28 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     LOGGER.setLevel(logging.INFO)
     args = parse_args()
+    input_ids = args.input_ids
+    if args.prompt_length is not None:
+        if args.prompt_length < 2:
+            raise ValueError("prompt_length must be at least 2")
+        input_ids = [5 + index % 30 for index in range(args.prompt_length)]
     if args.repeat_prompt_probe:
         report = run_repeated_prompt_probe(
-            args.model, args.input_ids, args.max_new_tokens, args.repeats
+            args.model,
+            input_ids,
+            args.max_new_tokens,
+            args.repeats,
+            mamba_radix_cache_strategy=args.mamba_radix_cache_strategy,
+            context_length=args.context_length,
         )
     else:
-        report = run_radix_smoke(args.model, args.input_ids, args.max_new_tokens)
+        report = run_radix_smoke(
+            args.model,
+            input_ids,
+            args.max_new_tokens,
+            mamba_radix_cache_strategy=args.mamba_radix_cache_strategy,
+            context_length=args.context_length,
+        )
     LOGGER.info("%s", json.dumps(report, sort_keys=True))
 
 
