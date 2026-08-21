@@ -27,6 +27,10 @@ def _create_engine(
     chunked_prefill_size: int | None = None,
     max_running_requests: int | None = None,
     max_mamba_cache_size: int = 32,
+    max_total_tokens: int | None = None,
+    schedule_conservativeness: float = 1.0,
+    skip_tokenizer_init: bool = True,
+    attention_backend: str = "torch_native",
 ) -> Any:
     """Create the correctness-first tiny-checkpoint SGLang engine."""
 
@@ -43,18 +47,23 @@ def _create_engine(
     return sgl.Engine(
         model_path=str(model_path),
         trust_remote_code=True,
-        skip_tokenizer_init=True,
+        skip_tokenizer_init=skip_tokenizer_init,
         dtype="auto",
         cuda_graph_backend_decode="disabled",
         cuda_graph_backend_prefill="disabled",
         disable_radix_cache=disable_radix_cache,
         mamba_radix_cache_strategy=mamba_radix_cache_strategy,
         disable_overlap_schedule=mamba_radix_cache_strategy == "no_buffer",
-        attention_backend="torch_native",
+        attention_backend=attention_backend,
         context_length=context_length,
-        max_total_tokens=max(64, context_length * 4),
+        max_total_tokens=(
+            max(64, context_length * 4)
+            if max_total_tokens is None
+            else max_total_tokens
+        ),
         max_mamba_cache_size=max_mamba_cache_size,
         mem_fraction_static=0.15,
+        schedule_conservativeness=schedule_conservativeness,
         **engine_kwargs,
     )
 
@@ -412,16 +421,22 @@ def run_cancellation_probe(
 
 
 def _generate_retraction_batch(
-    engine: Any, prompts: list[list[int]], max_new_tokens: int
+    engine: Any,
+    prompts: list[list[int]],
+    max_new_tokens: int,
+    *,
+    ignore_eos: bool = True,
+    min_new_tokens: int = 0,
 ) -> list[dict[str, Any]]:
-    """Generate an ignore-EOS batch and retain scheduler retraction counts."""
+    """Generate a fixed-length batch and retain scheduler retraction counts."""
 
     outputs = engine.generate(
         input_ids=prompts,
         sampling_params={
             "temperature": 0,
             "max_new_tokens": max_new_tokens,
-            "ignore_eos": True,
+            "min_new_tokens": min_new_tokens,
+            "ignore_eos": ignore_eos,
         },
     )
     if not isinstance(outputs, list):
@@ -563,6 +578,172 @@ def run_retraction_probe(
         "retraction_counts": retraction_counts,
         "control": control,
         "retracted": retracted,
+        "flush": flush,
+    }
+
+
+def _pressure_prompts(prompt_length: int, request_count: int) -> list[list[int]]:
+    """Build different-length prompts with no shared initial token."""
+
+    if request_count < 2:
+        raise ValueError("request_count must be at least two")
+    offsets = [4 * index - 2 * (request_count - 1) for index in range(request_count)]
+    lengths = [prompt_length + offset for offset in offsets]
+    if min(lengths) < 2:
+        raise ValueError("prompt_length is too short for the requested pressure batch")
+    return [
+        [5 + (index + branch * 7) % 30 for index in range(length)]
+        for branch, length in enumerate(lengths)
+    ]
+
+
+def run_organic_retraction_probe(
+    model_path: Path,
+    prompt_length: int,
+    max_new_tokens: int,
+    *,
+    request_count: int = 8,
+    pressure_max_total_tokens: int = 1100,
+    schedule_conservativeness: float = 0.1,
+    chunked_prefill_size: int = 64,
+    max_mamba_cache_size: int = 52,
+    mamba_radix_cache_strategy: str = "extra_buffer",
+    attention_backend: str = "torch_native",
+    context_length: int | None = None,
+) -> dict[str, Any]:
+    """Cause real KV pressure and compare resumed KDA output with a control.
+
+    Unlike :func:`run_retraction_probe`, this path does not enable SGLang's
+    deterministic retraction hook. It admits a bounded batch with an explicitly
+    under-conservative schedule, then relies on normal decode memory checks to
+    retract and resume requests as the full-attention KV pool fills.
+
+    Args:
+        model_path: Tiny hybrid OLMo KDA checkpoint with tokenizer assets.
+        prompt_length: Center length of the unique synthetic prompts.
+        max_new_tokens: Exact greedy decode length for every request.
+        request_count: Number of requests submitted in one batch.
+        pressure_max_total_tokens: KV-pool token cap for the pressure engine.
+        schedule_conservativeness: Admission reserve multiplier under pressure.
+        chunked_prefill_size: Maximum tokens in one prefill chunk.
+        max_mamba_cache_size: Recurrent-state slots available to each engine.
+        mamba_radix_cache_strategy: SGLang recurrent radix-cache strategy.
+        attention_backend: Full-attention backend used by both engines.
+        context_length: Optional checkpoint context-length override.
+
+    Returns:
+        JSON-serializable control, pressure, retraction, and cleanup details.
+
+    Raises:
+        AssertionError: If pressure causes no retraction, changes output, or leaks.
+        ValueError: If the requested workload cannot fit the declared context.
+    """
+
+    if max_new_tokens < 1:
+        raise ValueError("max_new_tokens must be positive")
+    if pressure_max_total_tokens < 1:
+        raise ValueError("pressure_max_total_tokens must be positive")
+    if not 0 < schedule_conservativeness < 1:
+        raise ValueError("schedule_conservativeness must be between zero and one")
+    prompts = _pressure_prompts(prompt_length, request_count)
+    resolved_context_length = context_length
+    if resolved_context_length is None:
+        config = json.loads((model_path / "config.json").read_text(encoding="utf-8"))
+        resolved_context_length = int(config["max_position_embeddings"])
+    required_context_length = max(map(len, prompts)) + max_new_tokens
+    if required_context_length > resolved_context_length:
+        raise ValueError(
+            f"probe requires context length {required_context_length}, "
+            f"got {resolved_context_length}"
+        )
+    control_max_total_tokens = max(
+        4096,
+        2 * (sum(map(len, prompts)) + request_count * max_new_tokens),
+    )
+
+    register()
+    common_engine_args = {
+        "disable_radix_cache": False,
+        "mamba_radix_cache_strategy": mamba_radix_cache_strategy,
+        "context_length": resolved_context_length,
+        "chunked_prefill_size": chunked_prefill_size,
+        "max_running_requests": request_count,
+        "max_mamba_cache_size": max_mamba_cache_size,
+        "skip_tokenizer_init": False,
+        "attention_backend": attention_backend,
+    }
+    control_engine = _create_engine(
+        model_path,
+        max_total_tokens=control_max_total_tokens,
+        **common_engine_args,
+    )
+    try:
+        control = _generate_retraction_batch(
+            control_engine,
+            prompts,
+            max_new_tokens,
+            ignore_eos=False,
+            min_new_tokens=max_new_tokens,
+        )
+    finally:
+        control_engine.shutdown()
+
+    pressure_engine = _create_engine(
+        model_path,
+        max_total_tokens=pressure_max_total_tokens,
+        schedule_conservativeness=schedule_conservativeness,
+        **common_engine_args,
+    )
+    try:
+        pressure = _generate_retraction_batch(
+            pressure_engine,
+            prompts,
+            max_new_tokens,
+            ignore_eos=False,
+            min_new_tokens=max_new_tokens,
+        )
+        flush = _control_result(
+            "post-organic-retraction cache flush", pressure_engine.flush_cache()
+        )
+    finally:
+        pressure_engine.shutdown()
+
+    retraction_counts = [request["num_retractions"] for request in pressure]
+    if not any(count > 0 for count in retraction_counts):
+        raise AssertionError(
+            "SGLang produced no organic request retractions; increase pressure: "
+            f"{retraction_counts}"
+        )
+    mismatches = [
+        index
+        for index, (control_request, pressure_request) in enumerate(
+            zip(control, pressure, strict=True)
+        )
+        if control_request["output_ids"] != pressure_request["output_ids"]
+    ]
+    retracted_indices = [
+        index for index, count in enumerate(retraction_counts) if count > 0
+    ]
+    retracted_mismatches = sorted(set(mismatches) & set(retracted_indices))
+    non_retracted_mismatches = sorted(set(mismatches) - set(retracted_indices))
+    if retracted_mismatches:
+        raise AssertionError(
+            "Organic KDA retraction/resume changed greedy output for retracted "
+            f"request indices {retracted_mismatches}: "
+            f"control={control!r}, pressure={pressure!r}"
+        )
+    return {
+        "request_count": request_count,
+        "prompt_lengths": list(map(len, prompts)),
+        "max_new_tokens": max_new_tokens,
+        "pressure_max_total_tokens": pressure_max_total_tokens,
+        "control_max_total_tokens": control_max_total_tokens,
+        "schedule_conservativeness": schedule_conservativeness,
+        "retraction_counts": retraction_counts,
+        "retracted_indices": retracted_indices,
+        "non_retracted_mismatch_indices": non_retracted_mismatches,
+        "control": control,
+        "pressure": pressure,
         "flush": flush,
     }
 
@@ -875,11 +1056,39 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Force scheduler retraction and validate resumed KDA output.",
     )
+    probe.add_argument(
+        "--organic-retraction-probe",
+        action="store_true",
+        help="Cause real KV pressure and validate resumed KDA output.",
+    )
     parser.add_argument(
         "--retraction-interval",
         type=int,
         default=7,
         help="Scheduler forwards between forced retractions in the retraction probe.",
+    )
+    parser.add_argument(
+        "--pressure-max-total-tokens",
+        type=int,
+        default=1100,
+        help="KV-pool token cap for the organic retraction probe.",
+    )
+    parser.add_argument(
+        "--pressure-request-count",
+        type=int,
+        default=8,
+        help="Batch width for the organic retraction probe.",
+    )
+    parser.add_argument(
+        "--schedule-conservativeness",
+        type=float,
+        default=0.1,
+        help="Admission reserve multiplier for the organic retraction probe.",
+    )
+    parser.add_argument(
+        "--organic-attention-backend",
+        default="torch_native",
+        help="Full-attention backend for the organic retraction probe.",
     )
     parser.add_argument(
         "--chunked-prefill-size",
@@ -902,7 +1111,21 @@ def main() -> None:
         if args.prompt_length < 2:
             raise ValueError("prompt_length must be at least 2")
         input_ids = [5 + index % 30 for index in range(args.prompt_length)]
-    if args.retraction_probe:
+    if args.organic_retraction_probe:
+        prompt_length = args.prompt_length if args.prompt_length is not None else 100
+        report = run_organic_retraction_probe(
+            args.model,
+            prompt_length,
+            args.max_new_tokens,
+            request_count=args.pressure_request_count,
+            pressure_max_total_tokens=args.pressure_max_total_tokens,
+            schedule_conservativeness=args.schedule_conservativeness,
+            chunked_prefill_size=args.chunked_prefill_size,
+            mamba_radix_cache_strategy=args.mamba_radix_cache_strategy,
+            attention_backend=args.organic_attention_backend,
+            context_length=args.context_length,
+        )
+    elif args.retraction_probe:
         prompt_length = args.prompt_length if args.prompt_length is not None else 300
         report = run_retraction_probe(
             args.model,

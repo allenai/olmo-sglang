@@ -6,6 +6,7 @@ from olmo_sglang.radix_smoke import (
     _control_result,
     _finish_reason,
     _mixed_prompts,
+    _pressure_prompts,
 )
 
 
@@ -38,6 +39,24 @@ def test_mixed_prompts_share_prefix_and_vary_lengths():
 def test_mixed_prompts_reject_too_short_center():
     with pytest.raises(ValueError, match="must exceed tracked_prefix_length"):
         _mixed_prompts(prompt_length=288, tracked_prefix_length=256)
+
+
+def test_pressure_prompts_are_unique_and_centered():
+    prompts = _pressure_prompts(prompt_length=100, request_count=8)
+
+    assert [len(prompt) for prompt in prompts] == [86, 90, 94, 98, 102, 106, 110, 114]
+    assert len({prompt[0] for prompt in prompts}) == 8
+
+
+@pytest.mark.parametrize("request_count", [0, 1])
+def test_pressure_prompts_require_multiple_requests(request_count):
+    with pytest.raises(ValueError, match="at least two"):
+        _pressure_prompts(prompt_length=100, request_count=request_count)
+
+
+def test_pressure_prompts_reject_too_short_center():
+    with pytest.raises(ValueError, match="too short"):
+        _pressure_prompts(prompt_length=2, request_count=8)
 
 
 def test_finish_reason_extracts_structured_type():

@@ -109,8 +109,8 @@ confused with complete production serving support.
   A production checkpoint matched all eight greedy output IDs; chosen-token
   log probabilities differed by at most 0.04458 and by 0.02373 on average.
 - [x] Validate mixed-length and long-prefix KDA batching, 64-token chunked
-  prefill, in-flight and queued cancellation, and forced scheduler retraction.
-  Organic retraction under production memory pressure remains a load-test item.
+  prefill, in-flight and queued cancellation, forced scheduler retraction, and
+  organic KV-pressure retraction/resume.
 
 ### Hardening and performance
 
@@ -414,8 +414,32 @@ This uses SGLang's scheduler test hook to force decode retractions every seven
 forwards. The response metadata must prove that retraction occurred, every
 resumed 64-token continuation must exactly match a normal scheduler control,
 and an idle cache flush must succeed. The hook makes the correctness test
-deterministic; a separate production load test should still observe organic
-retraction under real memory pressure.
+deterministic.
+
+Exercise the same path through normal KV-pool pressure, without the test hook:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m olmo_sglang.radix_smoke \
+  --model /tmp/olmo-sglang-radix-long \
+  --prompt-length 100 \
+  --max-new-tokens 64 \
+  --organic-retraction-probe \
+  --pressure-request-count 8 \
+  --pressure-max-total-tokens 1100 \
+  --schedule-conservativeness 0.1 \
+  --chunked-prefill-size 64 \
+  --organic-attention-backend torch_native \
+  --mamba-radix-cache-strategy extra_buffer
+```
+
+The probe first records an ample-memory control. Its pressure engine then uses
+SGLang's public admission control to under-reserve decode growth deliberately;
+the ordinary decode memory check must retract at least one request, every
+retracted 64-token continuation must exactly match the control, and the drained
+engine must accept an idle cache flush. The report separately records any
+non-retracted random-fixture mismatch caused by the changed batch shape. This is
+a stress-test setting, not a serving default: production keeps
+`schedule_conservativeness=1.0`.
 
 ## Exercise chain speculative decoding
 
