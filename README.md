@@ -32,12 +32,13 @@ Its radix path uses FLA's intermediate recurrent states plus SGLang's
 `extra_buffer` strategy to snapshot branch points, with copy-on-write for both
 the convolution window and recurrent matrix. Tensor parallelism currently
 requires matching model/attention TP groups and head counts divisible by the TP
-size. Other limits are chain-only correctness-first speculative verification
-and no changed-weight numerical attribution across an RL policy refresh. The
-idle refresh lifecycle, production MILES refresh path, and breadth-one NGRAM
-target verification are validated. The verifier is not yet a fused production
-kernel and tree speculation remains unsupported. This is not yet the final
-optimized serving kernel.
+size. Correctness-first speculative verification follows both linear chains and
+explicit tree parents, while changed-weight numerical attribution across an RL
+policy refresh remains open. The idle refresh lifecycle, production MILES
+refresh path, and breadth-one NGRAM target verification are validated. Tree
+state traversal has focused recurrence parity, but no branching draft engine has
+run end to end yet. The verifier is not a fused production kernel. This is not
+yet the final optimized serving kernel.
 
 FLA is optional; attention-only checkpoints do not import it.
 
@@ -79,14 +80,16 @@ confused with complete production serving support.
 - [ ] **Production RL radix lifecycle:** validate a production checkpoint,
   changed actor weights, cancellation under load, and the refresh across every
   rollout replica before enabling the cache in MILES.
-- [x] **Chain speculative correctness:** write every proposal's OLMo-semantic
+- [x] **Speculative state correctness:** write every proposal's OLMo-semantic
   KDA state to SGLang's speculative scratch pool, leave the committed pool
   untouched during verification, and let SGLang commit only the accepted
   prefix. A breadth-one NGRAM engine performed 14 verify passes and exactly
-  matched all 16 ordinary greedy tokens on a production-shaped local model.
-- [ ] **Production speculative kernel:** fuse the chain verifier, remove its
-  eager host synchronization/PyTorch loop, support CUDA-graph replay, and add
-  tree-ancestor traversal before enabling branching algorithms.
+  matched all 16 ordinary greedy tokens on a production-shaped local model. A
+  focused branching-tree test independently reproduces every node output and
+  snapshot while proving the committed state is unchanged.
+- [ ] **Production speculative kernel:** fuse the chain/tree verifier, remove
+  its eager host synchronization/PyTorch loop, support CUDA-graph replay, run a
+  branching draft algorithm end to end, and complete a performance screen.
 - [x] **Tensor parallelism greater than one:** shard the KDA projections,
   unequal-width K/V heads, convolution windows, and recurrent state correctly;
   compare TP=1 and TP=2 greedy generation plus chosen-token log probabilities.
@@ -426,13 +429,16 @@ synthetic run performed 14 verify passes, proposed 42 drafts, accepted one, and
 exactly reproduced the ordinary output IDs. Low acceptance is unsurprising for
 random weights; this probe is a correctness gate, not a speed benchmark.
 
-This first implementation intentionally supports only a linear draft chain. It
-runs eager PyTorch recurrence and writes every post-token state to SGLang's
-intermediate state pool, without mutating the committed pool. SGLang's central
-commit then selects the accepted state, so rejection and rollback use its
-normal lifecycle. CUDA graphs are disabled for the smoke test. Branching NGRAM
-or EAGLE trees, a fused verifier, and speculative performance validation remain
-TODOs. The repository's 8-wide tiny full-attention fixture is below
+This smoke intentionally uses a linear draft chain. The verifier also accepts
+SGLang's explicit tree-parent tensor and resumes each node from its parent's
+snapshot; a focused test checks that recurrence against an independent
+reference. It runs eager PyTorch recurrence and writes every post-token state
+to SGLang's intermediate state pool without mutating the committed pool.
+SGLang's central commit then selects the accepted state, so rejection and
+rollback use its normal lifecycle. CUDA graphs are disabled for the smoke test.
+An end-to-end branching NGRAM or EAGLE run, a fused verifier, and speculative
+performance validation remain TODOs. The repository's 8-wide tiny
+full-attention fixture is below
 FlashInfer's supported production head sizes, so use a production-shaped local
 fixture or the real checkpoint for this command.
 
