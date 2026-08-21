@@ -29,10 +29,12 @@ hybrid scheduler, convolution cache, and recurrent-state pool, but calls FLA
 Its radix path uses FLA's intermediate recurrent states plus SGLang's
 `extra_buffer` strategy to snapshot branch points, with copy-on-write for both
 the convolution window and recurrent matrix. Current limits are tensor parallel
-size 1, no speculative target verification, and no changed-weight numerical
-attribution across an RL policy refresh. The idle refresh lifecycle and
-production MILES refresh path are validated. This is not yet the final
-optimized serving kernel.
+size 1, chain-only correctness-first speculative verification, and no
+changed-weight numerical attribution across an RL policy refresh. The idle
+refresh lifecycle, production MILES refresh path, and breadth-one NGRAM target
+verification are validated. The verifier is not yet a fused production kernel
+and tree speculation remains unsupported. This is not yet the final optimized
+serving kernel.
 
 FLA is optional; attention-only checkpoints do not import it.
 
@@ -74,9 +76,14 @@ confused with complete production serving support.
 - [ ] **Production RL radix lifecycle:** validate a production checkpoint,
   changed actor weights, cancellation under load, and the refresh across every
   rollout replica before enabling the cache in MILES.
-- [ ] **Speculative decoding:** implement KDA target verification with
-  per-proposal intermediate states and commit only the accepted prefix,
-  including rollback and tree-branch behavior.
+- [x] **Chain speculative correctness:** write every proposal's OLMo-semantic
+  KDA state to SGLang's speculative scratch pool, leave the committed pool
+  untouched during verification, and let SGLang commit only the accepted
+  prefix. A breadth-one NGRAM engine performed 14 verify passes and exactly
+  matched all 16 ordinary greedy tokens on a production-shaped local model.
+- [ ] **Production speculative kernel:** fuse the chain verifier, remove its
+  eager host synchronization/PyTorch loop, support CUDA-graph replay, and add
+  tree-ancestor traversal before enabling branching algorithms.
 - [ ] **Tensor parallelism greater than one:** shard the KDA projections,
   unequal-width K/V heads, convolution windows, and recurrent state correctly;
   add TP=1 versus TP=2 numerical comparisons.
@@ -103,8 +110,10 @@ confused with complete production serving support.
   tests; production KDA serving remains GPU-oriented.
 
 Speculative decoding and TP>1 are not prerequisites for the first MILES
-integration. The immediate radix gate is real-checkpoint numerical correctness
-and policy-refresh invalidation using TP=1 and ordinary autoregressive decoding.
+integration. Chain verification now has a correctness path, but ordinary
+autoregressive decoding remains the production default until the verifier is
+fused and benchmarked. The immediate radix gate is real-checkpoint numerical
+correctness and policy-refresh invalidation using TP=1.
 
 ## Install
 
@@ -385,6 +394,41 @@ resumed 64-token continuation must exactly match a normal scheduler control,
 and an idle cache flush must succeed. The hook makes the correctness test
 deterministic; a separate production load test should still observe organic
 retraction under real memory pressure.
+
+## Exercise chain speculative decoding
+
+The packaged speculative smoke test launches matched ordinary and breadth-one
+NGRAM engines, generates greedily from the same token IDs, requires identical
+output, and requires SGLang's response metadata to prove that target
+verification actually ran:
+
+```bash
+uv pip install --python .venv/bin/python ninja
+
+PYTHONPATH=src uv run --no-sync python -m olmo_sglang.speculative_smoke \
+  --model /path/to/olmo-hf-checkpoint \
+  --prompt-length 32 \
+  --max-new-tokens 16 \
+  --context-length 64
+```
+
+Ninja is needed for SGLang's bundled NGRAM corpus JIT extension; it is a runtime
+environment prerequisite rather than an `olmo-sglang` package dependency. The
+JSON report includes `spec_verify_ct`, proposed and accepted draft counts,
+acceptance rate, and average accepted length. A validated production-shaped
+synthetic run performed 14 verify passes, proposed 42 drafts, accepted one, and
+exactly reproduced the ordinary output IDs. Low acceptance is unsurprising for
+random weights; this probe is a correctness gate, not a speed benchmark.
+
+This first implementation intentionally supports only a linear draft chain. It
+runs eager PyTorch recurrence and writes every post-token state to SGLang's
+intermediate state pool, without mutating the committed pool. SGLang's central
+commit then selects the accepted state, so rejection and rollback use its
+normal lifecycle. CUDA graphs are disabled for the smoke test. Branching NGRAM
+or EAGLE trees, a fused verifier, and speculative performance validation remain
+TODOs. The repository's 8-wide tiny full-attention fixture is below
+FlashInfer's supported production head sizes, so use a production-shaped local
+fixture or the real checkpoint for this command.
 
 ## Local production-shaped parity loop
 

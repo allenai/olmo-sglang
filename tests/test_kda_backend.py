@@ -1,4 +1,5 @@
 import sys
+from itertools import pairwise
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -210,6 +211,105 @@ def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch):
     assert inference_modes == [True]
     assert result[1] is intermediate_state
     torch.testing.assert_close(state_pool, torch.ones_like(state_pool))
+
+
+def test_kda_target_verify_snapshots_ragged_chains_without_committing():
+    torch.manual_seed(13)
+    batch_size, token_count = 2, 5
+    query_heads, value_heads = 1, 2
+    key_dim, value_dim = 3, 4
+    q = torch.randn(1, token_count, query_heads, key_dim)
+    k = torch.randn_like(q)
+    v = torch.randn(1, token_count, value_heads, value_dim)
+    raw_gate = torch.randn(token_count, value_heads, key_dim)
+    raw_beta = torch.randn(1, token_count, value_heads)
+    a_log = torch.randn(value_heads)
+    dt_bias = torch.randn(value_heads, key_dim)
+    state_pool = torch.randn(4, value_heads, value_dim, key_dim)
+    original_state_pool = state_pool.clone()
+    cache_indices = torch.tensor([2, 0], dtype=torch.int32)
+    query_start_loc = torch.tensor([0, 2, 5], dtype=torch.int32)
+    scratch_indices = torch.tensor([1, 3], dtype=torch.int32)
+    scratch = torch.full((4, 3, value_heads, value_dim, key_dim), float("nan"))
+
+    kernel = object.__new__(kda_backend.OlmoFLAKDAKernel)
+    kernel.allow_neg_eigval = True
+    actual = kernel.target_verify(
+        A_log=a_log,
+        dt_bias=dt_bias,
+        q=q,
+        k=k,
+        v=v,
+        a=raw_gate,
+        b=raw_beta,
+        ssm_states=state_pool,
+        cache_indices=cache_indices,
+        query_start_loc=query_start_loc,
+        intermediate_states_buffer=scratch,
+        intermediate_state_indices=scratch_indices,
+        cache_steps=3,
+        retrieve_parent_token=None,
+    )
+
+    expanded_q = q.float().repeat_interleave(value_heads // query_heads, dim=2)
+    expanded_k = k.float().repeat_interleave(value_heads // query_heads, dim=2)
+    expanded_q *= torch.rsqrt(
+        (expanded_q * expanded_q).sum(dim=-1, keepdim=True) + 1e-6
+    )
+    expanded_q *= key_dim**-0.5
+    expanded_k *= torch.rsqrt(
+        (expanded_k * expanded_k).sum(dim=-1, keepdim=True) + 1e-6
+    )
+    expected = torch.empty_like(v)
+    expected_snapshots = {}
+    starts = query_start_loc.tolist()
+    for request_index, (start, end) in enumerate(pairwise(starts)):
+        state = original_state_pool[cache_indices[request_index]].clone()
+        for step, token_index in enumerate(range(start, end)):
+            decay = -a_log.exp()[:, None] * torch.nn.functional.softplus(
+                raw_gate[token_index] + dt_bias
+            )
+            state *= decay.exp().unsqueeze(-2)
+            delta = v[0, token_index] - torch.einsum(
+                "hvk,hk->hv", state, expanded_k[0, token_index]
+            )
+            delta *= (2.0 * raw_beta[0, token_index].sigmoid()).unsqueeze(-1)
+            state += torch.einsum("hv,hk->hvk", delta, expanded_k[0, token_index])
+            expected[0, token_index] = torch.einsum(
+                "hvk,hk->hv", state, expanded_q[0, token_index]
+            )
+            expected_snapshots[(scratch_indices[request_index].item(), step)] = (
+                state.clone()
+            )
+
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(state_pool, original_state_pool)
+    for (scratch_index, step), expected_state in expected_snapshots.items():
+        torch.testing.assert_close(scratch[scratch_index, step], expected_state)
+    assert batch_size == len(starts) - 1
+
+
+def test_kda_target_verify_rejects_tree_speculation():
+    kernel = object.__new__(kda_backend.OlmoFLAKDAKernel)
+    kernel.allow_neg_eigval = True
+    q = torch.zeros(1, 1, 1, 2)
+    with pytest.raises(RuntimeError, match="linear chains only"):
+        kernel.target_verify(
+            A_log=torch.zeros(1),
+            dt_bias=torch.zeros(1, 2),
+            q=q,
+            k=q,
+            v=q,
+            a=torch.zeros(1, 1, 2),
+            b=torch.zeros(1, 1, 1),
+            ssm_states=torch.zeros(1, 1, 2, 2),
+            cache_indices=torch.zeros(1, dtype=torch.int32),
+            query_start_loc=torch.tensor([0, 1], dtype=torch.int32),
+            intermediate_states_buffer=torch.zeros(1, 1, 1, 2, 2),
+            intermediate_state_indices=torch.zeros(1, dtype=torch.int32),
+            cache_steps=1,
+            retrieve_parent_token=torch.zeros(1, dtype=torch.int32),
+        )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")

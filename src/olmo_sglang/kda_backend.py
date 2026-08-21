@@ -15,6 +15,7 @@ import importlib.metadata
 import logging
 from contextlib import nullcontext
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Any
 
 import torch
@@ -424,6 +425,118 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
             name: value for name, value in kwargs.items() if name in self._RUN_ARGUMENTS
         }
         return self._run(q, k, v, a, b, **run_kwargs)
+
+    def target_verify(
+        self,
+        A_log: torch.Tensor,
+        dt_bias: torch.Tensor,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        a: torch.Tensor,
+        b: torch.Tensor,
+        *,
+        ssm_states: torch.Tensor,
+        cache_indices: torch.Tensor,
+        query_start_loc: torch.Tensor,
+        intermediate_states_buffer: torch.Tensor,
+        intermediate_state_indices: torch.Tensor,
+        cache_steps: int,
+        retrieve_parent_token: torch.Tensor | None,
+        lower_bound: float | None = None,
+        **_: Any,
+    ) -> torch.Tensor:
+        """Verify linear draft chains without mutating committed KDA states.
+
+        This correctness-first path snapshots every post-token recurrent state so
+        SGLang can commit the accepted step centrally. Tree speculation requires
+        following a different state ancestor for each node and is intentionally
+        rejected until an OLMo-semantic fused verifier provides that traversal.
+        """
+
+        if retrieve_parent_token is not None:
+            raise RuntimeError(
+                "OLMo KDA speculative verification currently supports linear "
+                "chains only (retrieve_parent_token must be None)"
+            )
+        if lower_bound is not None:
+            raise NotImplementedError(
+                "OLMo KDA does not use Kimi's safe-gate lower bound"
+            )
+        if intermediate_states_buffer is None:
+            raise RuntimeError("OLMo KDA target_verify requires intermediate states")
+        if q.ndim != 4 or q.shape[0] != 1:
+            raise ValueError(
+                "q, k, and v must use packed [1, tokens, heads, dim] layout"
+            )
+
+        num_tokens = q.shape[1]
+        num_value_heads = v.shape[2]
+        key_dim = q.shape[-1]
+        if k.shape[:2] != q.shape[:2] or k.shape[-1] != key_dim:
+            raise ValueError("q and k must have matching token and key dimensions")
+        if num_value_heads % q.shape[2] or num_value_heads % k.shape[2]:
+            raise ValueError("value heads must be divisible by query and key heads")
+
+        query = q.float().repeat_interleave(num_value_heads // q.shape[2], dim=2)
+        key = k.float().repeat_interleave(num_value_heads // k.shape[2], dim=2)
+        query *= torch.rsqrt((query * query).sum(dim=-1, keepdim=True) + 1e-6)
+        query *= key_dim**-0.5
+        key *= torch.rsqrt((key * key).sum(dim=-1, keepdim=True) + 1e-6)
+        value = v.float()
+        raw_gate = a.reshape(1, num_tokens, num_value_heads, key_dim).float()
+        raw_beta = b.reshape(1, num_tokens, num_value_heads).float()
+        decay_parameter = A_log.reshape(num_value_heads).float().exp()
+        gate_bias = dt_bias.reshape(num_value_heads, key_dim).float()
+        beta_multiplier = 2.0 if self.allow_neg_eigval else 1.0
+        output = torch.empty_like(v)
+
+        starts = query_start_loc.detach().cpu().tolist()
+        if not starts or starts[0] != 0 or starts[-1] != num_tokens:
+            raise ValueError("query_start_loc must partition every packed token")
+        batch_size = len(starts) - 1
+        if cache_indices.numel() < batch_size:
+            raise ValueError("cache_indices has fewer entries than the verify batch")
+        if intermediate_state_indices.numel() < batch_size:
+            raise ValueError(
+                "intermediate_state_indices has fewer entries than the verify batch"
+            )
+
+        with torch.inference_mode():
+            for request_index, (start, end) in enumerate(pairwise(starts)):
+                request_steps = end - start
+                if request_steps > cache_steps:
+                    raise ValueError(
+                        f"request has {request_steps} verify tokens but cache_steps={cache_steps}"
+                    )
+                state_index = int(cache_indices[request_index].item())
+                scratch_index = int(intermediate_state_indices[request_index].item())
+                if state_index < 0:
+                    output[:, start:end].zero_()
+                    intermediate_states_buffer[scratch_index, :request_steps].zero_()
+                    continue
+
+                state = ssm_states[state_index].float().clone()
+                for step, token_index in enumerate(range(start, end)):
+                    log_decay = -decay_parameter[
+                        :, None
+                    ] * torch.nn.functional.softplus(
+                        raw_gate[0, token_index] + gate_bias
+                    )
+                    state *= log_decay.exp().unsqueeze(-2)
+                    delta = value[0, token_index] - torch.einsum(
+                        "hvk,hk->hv", state, key[0, token_index]
+                    )
+                    beta = beta_multiplier * raw_beta[0, token_index].sigmoid()
+                    delta *= beta.unsqueeze(-1)
+                    state += torch.einsum("hv,hk->hvk", delta, key[0, token_index])
+                    token_output = torch.einsum(
+                        "hvk,hk->hv", state, query[0, token_index]
+                    )
+                    output[0, token_index].copy_(token_output)
+                    intermediate_states_buffer[scratch_index, step].copy_(state)
+
+        return output
 
     def extend(
         self,
