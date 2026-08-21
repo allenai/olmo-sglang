@@ -56,9 +56,12 @@ def test_branching_smoke_primes_corpus_before_matched_request(monkeypatch):
         context_length=16,
         ngram_breadth=2,
         corpus_prompts=corpus_prompts,
+        cuda_graph_backend_decode="full",
     )
 
     assert engine_kwargs[1]["ngram_breadth"] == 2
+    assert engine_kwargs[0]["cuda_graph_backend_decode"] == "full"
+    assert engine_kwargs[1]["cuda_graph_backend_decode"] == "full"
     assert [call[0] for call in speculative.calls] == [
         *corpus_prompts,
         [1, 2, 3],
@@ -67,6 +70,7 @@ def test_branching_smoke_primes_corpus_before_matched_request(monkeypatch):
     assert report["ngram_breadth"] == 2
     assert report["corpus_prompt_count"] == 2
     assert report["branch_leaf_paths"] == 2
+    assert report["cuda_graph_backend_decode"] == "full"
     assert baseline.shutdown_called
     assert speculative.shutdown_called
 

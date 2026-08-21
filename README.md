@@ -38,8 +38,8 @@ policy refresh remains open. The idle refresh lifecycle, production MILES
 refresh path, and breadth-one NGRAM target verification are validated. Tree
 state traversal has focused recurrence parity, and the GPU verifier is fused,
 free of host synchronization, and validated under CUDA-graph replay. Fixed
-breadth-two NGRAM branching also passes end to end; whole-engine speculative
-graphs and performance remain unscreened. This is not the final serving kernel.
+breadth-two NGRAM branching also passes end to end under full target-verification
+graph capture; production speculative performance remains unscreened.
 
 FLA is optional; attention-only checkpoints do not import it.
 
@@ -97,10 +97,12 @@ confused with complete production serving support.
   continuations, require its host corpus to expose two leaf paths, and run the
   same fixed-breadth-two tree through the embedded KDA engine. The local run
   matched all 16 ordinary greedy IDs across 15 verify passes and 45 proposals.
-- [ ] **Production speculative performance:** enable the whole-engine
-  speculative CUDA-graph path and measure proposed tokens, acceptance, verifier
-  latency, and net throughput against ordinary decoding on a trained checkpoint
-  with a useful draft source.
+- [x] **Whole-engine speculative graphs:** capture SGLang's target-verification
+  forward in full decode graph mode and rerun the self-validating breadth-two
+  tree with exact 16-token ordinary-versus-speculative parity.
+- [ ] **Production speculative performance:** measure proposed tokens,
+  acceptance, verifier latency, and net throughput against ordinary decoding on
+  a trained checkpoint with a useful draft source.
 - [x] **Tensor parallelism greater than one:** shard the KDA projections,
   unequal-width K/V heads, convolution windows, and recurrent state correctly;
   compare TP=1 and TP=2 greedy generation plus chosen-token log probabilities.
@@ -442,7 +444,8 @@ PYTHONPATH=src uv run --no-sync python -m olmo_sglang.speculative_smoke \
   --input-ids 1 2 3 \
   --corpus-prompt 1 2 3 4 5 6 7 \
   --corpus-prompt 1 2 3 8 9 10 11 \
-  --ngram-breadth 2 --max-new-tokens 16 --context-length 64
+  --ngram-breadth 2 --max-new-tokens 16 --context-length 64 \
+  --cuda-graph-backend-decode full
 ```
 
 Ninja is needed for SGLang's bundled NGRAM corpus JIT extension; it is a runtime
@@ -463,9 +466,10 @@ CUDA-graph replay with changed inputs and state is covered locally. SGLang's
 central commit then selects the accepted state, so rejection and rollback use
 its normal lifecycle. The fixed-breadth-two run reports two independently
 verified leaf paths, 15 target-verification passes, 45 proposals, and exact
-16-token greedy parity. CUDA graphs remain disabled in both end-to-end smokes;
-whole-engine speculative graph validation and a performance screen remain
-TODOs. The repository's 8-wide tiny full-attention fixture is below
+16-token greedy parity. The default chain command keeps graphs disabled; the
+branching command captures and replays SGLang's full target-verification graph.
+A trained-checkpoint speculative performance screen remains TODO. The
+repository's 8-wide tiny full-attention fixture is below
 FlashInfer's supported production head sizes, so use a production-shaped local
 fixture or the real checkpoint for this command.
 

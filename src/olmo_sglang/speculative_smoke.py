@@ -23,6 +23,7 @@ def _create_engine(
     speculative: bool,
     mem_fraction_static: float,
     ngram_breadth: int = 1,
+    cuda_graph_backend_decode: str = "disabled",
 ) -> Any:
     """Create one eager embedded engine for the matched greedy A/B."""
 
@@ -41,7 +42,8 @@ def _create_engine(
         trust_remote_code=True,
         skip_tokenizer_init=True,
         dtype="auto",
-        cuda_graph_backend_decode="disabled",
+        cuda_graph_backend_decode=cuda_graph_backend_decode,
+        cuda_graph_max_bs_decode=2,
         cuda_graph_backend_prefill="disabled",
         context_length=context_length,
         max_total_tokens=max(256, context_length * 2),
@@ -100,6 +102,7 @@ def run_speculative_smoke(
     mem_fraction_static: float = 0.25,
     ngram_breadth: int = 1,
     corpus_prompts: list[list[int]] | None = None,
+    cuda_graph_backend_decode: str = "disabled",
 ) -> dict[str, Any]:
     """Require exact greedy parity and evidence of NGRAM target verification.
 
@@ -126,6 +129,7 @@ def run_speculative_smoke(
         context_length=context_length,
         speculative=False,
         mem_fraction_static=mem_fraction_static,
+        cuda_graph_backend_decode=cuda_graph_backend_decode,
     )
     try:
         baseline = _generate(baseline_engine, input_ids, max_new_tokens)
@@ -138,6 +142,7 @@ def run_speculative_smoke(
         speculative=True,
         mem_fraction_static=mem_fraction_static,
         ngram_breadth=ngram_breadth,
+        cuda_graph_backend_decode=cuda_graph_backend_decode,
     )
     try:
         for corpus_prompt in corpus_prompts or []:
@@ -171,6 +176,7 @@ def run_speculative_smoke(
         "ngram_breadth": ngram_breadth,
         "corpus_prompt_count": len(corpus_prompts or []),
         "branch_leaf_paths": branch_leaf_paths,
+        "cuda_graph_backend_decode": cuda_graph_backend_decode,
     }
 
 
@@ -184,6 +190,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--context-length", type=int, default=64)
     parser.add_argument("--mem-fraction-static", type=float, default=0.25)
+    parser.add_argument(
+        "--cuda-graph-backend-decode",
+        choices=("disabled", "full"),
+        default="disabled",
+    )
     parser.add_argument("--ngram-breadth", type=int, default=1)
     parser.add_argument(
         "--corpus-prompt",
@@ -216,6 +227,7 @@ def main() -> None:
         mem_fraction_static=args.mem_fraction_static,
         ngram_breadth=args.ngram_breadth,
         corpus_prompts=args.corpus_prompt,
+        cuda_graph_backend_decode=args.cuda_graph_backend_decode,
     )
     LOGGER.info("%s", json.dumps(report, sort_keys=True))
 
