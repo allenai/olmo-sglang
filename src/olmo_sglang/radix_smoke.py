@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -410,6 +411,162 @@ def run_cancellation_probe(
     }
 
 
+def _generate_retraction_batch(
+    engine: Any, prompts: list[list[int]], max_new_tokens: int
+) -> list[dict[str, Any]]:
+    """Generate an ignore-EOS batch and retain scheduler retraction counts."""
+
+    outputs = engine.generate(
+        input_ids=prompts,
+        sampling_params={
+            "temperature": 0,
+            "max_new_tokens": max_new_tokens,
+            "ignore_eos": True,
+        },
+    )
+    if not isinstance(outputs, list):
+        raise TypeError(f"Expected a batch of SGLang outputs, got {type(outputs)!r}")
+    return [
+        {
+            "input_length": len(prompt),
+            "output_ids": output["output_ids"],
+            "cached_tokens": int(output["meta_info"]["cached_tokens"]),
+            "num_retractions": int(output["meta_info"].get("num_retractions", 0)),
+        }
+        for prompt, output in zip(prompts, outputs, strict=True)
+    ]
+
+
+def run_retraction_probe(
+    model_path: Path,
+    prompt_length: int,
+    max_new_tokens: int,
+    *,
+    retraction_interval: int = 7,
+    chunked_prefill_size: int = 64,
+    max_running_requests: int = 4,
+    max_mamba_cache_size: int = 32,
+    mamba_radix_cache_strategy: str = "extra_buffer",
+    context_length: int | None = None,
+) -> dict[str, Any]:
+    """Force decode retraction and compare resumed KDA output with eager control.
+
+    The baseline runs first with SGLang's ordinary scheduler. A second engine
+    enables SGLang's own deterministic retraction test hook before its worker
+    process starts. At least one request must report a retraction, every resumed
+    greedy continuation must match the baseline, and the engine must drain far
+    enough for an idle cache flush.
+
+    Args:
+        model_path: Tiny OLMo KDA checkpoint directory.
+        prompt_length: Center length of the synthetic request batch.
+        max_new_tokens: Ignore-EOS decode length for each request.
+        retraction_interval: Scheduler forward interval between forced retracts.
+        chunked_prefill_size: Maximum tokens in one SGLang prefill chunk.
+        max_running_requests: Admission ceiling for the concurrent batch.
+        max_mamba_cache_size: Recurrent-state slots available to the engine.
+        mamba_radix_cache_strategy: SGLang recurrent radix-cache strategy.
+        context_length: Optional checkpoint context-length override.
+
+    Returns:
+        JSON-serializable control, retracted, and cleanup details.
+
+    Raises:
+        AssertionError: If no retraction occurs, output changes, or cleanup fails.
+        ValueError: If the requested workload is too small or exceeds context.
+    """
+
+    if retraction_interval < 1:
+        raise ValueError("retraction_interval must be positive")
+    if max_new_tokens < retraction_interval * 2:
+        raise ValueError("max_new_tokens must span at least two retraction intervals")
+
+    base_prompts = _mixed_prompts(prompt_length, tracked_prefix_length=256)
+    prompts = [base_prompts[0], base_prompts[1], base_prompts[2], base_prompts[1]]
+    resolved_context_length = context_length
+    if resolved_context_length is None:
+        config = json.loads((model_path / "config.json").read_text(encoding="utf-8"))
+        resolved_context_length = int(config["max_position_embeddings"])
+    required_context_length = max(map(len, prompts)) + max_new_tokens
+    if required_context_length > resolved_context_length:
+        raise ValueError(
+            f"probe requires context length {required_context_length}, "
+            f"got {resolved_context_length}"
+        )
+
+    register()
+    control_engine = _create_engine(
+        model_path,
+        disable_radix_cache=False,
+        mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+        context_length=resolved_context_length,
+        chunked_prefill_size=chunked_prefill_size,
+        max_running_requests=max_running_requests,
+        max_mamba_cache_size=max_mamba_cache_size,
+    )
+    try:
+        control = _generate_retraction_batch(control_engine, prompts, max_new_tokens)
+    finally:
+        control_engine.shutdown()
+
+    test_environment = {
+        "SGLANG_TEST_RETRACT": "True",
+        "SGLANG_TEST_RETRACT_INTERVAL": str(retraction_interval),
+    }
+    previous_environment = {name: os.environ.get(name) for name in test_environment}
+    os.environ.update(test_environment)
+    retraction_engine = None
+    try:
+        retraction_engine = _create_engine(
+            model_path,
+            disable_radix_cache=False,
+            mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+            context_length=resolved_context_length,
+            chunked_prefill_size=chunked_prefill_size,
+            max_running_requests=max_running_requests,
+            max_mamba_cache_size=max_mamba_cache_size,
+        )
+        retracted = _generate_retraction_batch(
+            retraction_engine, prompts, max_new_tokens
+        )
+        flush = _control_result(
+            "post-retraction cache flush", retraction_engine.flush_cache()
+        )
+    finally:
+        if retraction_engine is not None:
+            retraction_engine.shutdown()
+        for name, value in previous_environment.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+    retraction_counts = [request["num_retractions"] for request in retracted]
+    if not any(count > 0 for count in retraction_counts):
+        raise AssertionError(
+            f"SGLang forced no request retractions: {retraction_counts}"
+        )
+    mismatches = [
+        index
+        for index, (control_request, retracted_request) in enumerate(
+            zip(control, retracted, strict=True)
+        )
+        if control_request["output_ids"] != retracted_request["output_ids"]
+    ]
+    if mismatches:
+        raise AssertionError(
+            "KDA retraction/resume changed greedy output for request indices "
+            f"{mismatches}: control={control!r}, retracted={retracted!r}"
+        )
+    return {
+        "retraction_interval": retraction_interval,
+        "retraction_counts": retraction_counts,
+        "control": control,
+        "retracted": retracted,
+        "flush": flush,
+    }
+
+
 def run_radix_smoke(
     model_path: Path,
     input_ids: list[int],
@@ -713,6 +870,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Cancel running and queued requests, then validate state recovery.",
     )
+    probe.add_argument(
+        "--retraction-probe",
+        action="store_true",
+        help="Force scheduler retraction and validate resumed KDA output.",
+    )
+    parser.add_argument(
+        "--retraction-interval",
+        type=int,
+        default=7,
+        help="Scheduler forwards between forced retractions in the retraction probe.",
+    )
     parser.add_argument(
         "--chunked-prefill-size",
         type=int,
@@ -734,7 +902,18 @@ def main() -> None:
         if args.prompt_length < 2:
             raise ValueError("prompt_length must be at least 2")
         input_ids = [5 + index % 30 for index in range(args.prompt_length)]
-    if args.cancellation_probe:
+    if args.retraction_probe:
+        prompt_length = args.prompt_length if args.prompt_length is not None else 300
+        report = run_retraction_probe(
+            args.model,
+            prompt_length,
+            args.max_new_tokens,
+            retraction_interval=args.retraction_interval,
+            chunked_prefill_size=args.chunked_prefill_size,
+            mamba_radix_cache_strategy=args.mamba_radix_cache_strategy,
+            context_length=args.context_length,
+        )
+    elif args.cancellation_probe:
         prompt_length = args.prompt_length if args.prompt_length is not None else 300
         report = run_cancellation_probe(
             args.model,

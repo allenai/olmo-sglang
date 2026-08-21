@@ -2,7 +2,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from olmo_sglang.radix_smoke import _control_result, _finish_reason, _mixed_prompts
+from olmo_sglang.radix_smoke import (
+    _control_result,
+    _finish_reason,
+    _mixed_prompts,
+)
 
 
 def test_control_result_accepts_structured_and_tuple_responses():

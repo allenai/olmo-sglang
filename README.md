@@ -366,6 +366,26 @@ then sends a recovery batch, compares it with a fresh cache-disabled engine,
 and requires an idle cache flush to succeed. This catches leaked recurrent
 slots and state contamination after both running and queued cancellation.
 
+Exercise SGLang's actual decode retraction/resume path deterministically:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m olmo_sglang.radix_smoke \
+  --model /tmp/olmo-sglang-radix-long \
+  --prompt-length 300 \
+  --max-new-tokens 64 \
+  --retraction-probe \
+  --retraction-interval 7 \
+  --chunked-prefill-size 64 \
+  --mamba-radix-cache-strategy extra_buffer
+```
+
+This uses SGLang's scheduler test hook to force decode retractions every seven
+forwards. The response metadata must prove that retraction occurred, every
+resumed 64-token continuation must exactly match a normal scheduler control,
+and an idle cache flush must succeed. The hook makes the correctness test
+deterministic; a separate production load test should still observe organic
+retraction under real memory pressure.
+
 ## Local production-shaped parity loop
 
 Use the independent tiny reference before spending a full-checkpoint cycle on
