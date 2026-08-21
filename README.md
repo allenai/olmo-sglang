@@ -86,8 +86,16 @@ confused with complete production serving support.
 
 ### Hardening and performance
 
-- [ ] Replace the correctness-first FLA chunk call for one-token decode with an
-  optimized OLMo-semantics kernel, then re-enable and validate CUDA graphs.
+- [x] Replace the correctness-first FLA chunk call for one-token decode with a
+  packed Triton kernel that preserves OLMo's optional
+  `beta = 2 * sigmoid(raw_beta)` semantics. Local model-shaped kernel
+  measurements on an RTX 4090 reduced an eight-head 128-by-128 state update
+  from 0.434 ms to 0.007 ms at batch one and from 0.463 ms to 0.010 ms at
+  batch four. Torch recurrence parity covers both beta modes; the tiny hybrid
+  engine retains its exact greedy tokens and 256-token radix-cache hits.
+- [ ] Enable decode CUDA graphs only after production-checkpoint packed-kernel
+  parity; compare replay iterations against the matched eager path. Keep
+  prefill graphs disabled for a separate experiment.
 - [ ] Replace or upstream the narrow FLA 0.5.2/Triton 3.6+ source shim.
 - [ ] Add BF16 and production-dimension coverage, including real sparse-MoE
   layers rather than only the tiny dense smoke checkpoint.

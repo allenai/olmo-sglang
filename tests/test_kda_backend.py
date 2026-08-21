@@ -1,11 +1,13 @@
 import sys
 from types import ModuleType, SimpleNamespace
 
+import pytest
 import torch
 
 from olmo_sglang import kda_backend
 from olmo_sglang.kda_backend import (
     OlmoKDAStateShape,
+    OlmoPackedKDAKernel,
     _OlmoKDAConfig,
     _prepare_olmo_config,
     _rewrite_fla_kernel_source,
@@ -208,3 +210,86 @@ def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch):
     assert inference_modes == [True]
     assert result[1] is intermediate_state
     torch.testing.assert_close(state_pool, torch.ones_like(state_pool))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
+@pytest.mark.parametrize("allow_neg_eigval", [False, True])
+def test_packed_kda_decode_matches_torch_reference(allow_neg_eigval):
+    torch.manual_seed(7)
+    device = torch.device("cuda")
+    batch_size, num_heads, key_dim, value_dim = 4, 2, 8, 16
+    num_slots = 6
+    dtype = torch.bfloat16
+    mixed_qkv = torch.randn(
+        batch_size,
+        2 * num_heads * key_dim + num_heads * value_dim,
+        device=device,
+        dtype=dtype,
+    )
+    raw_gate = torch.randn(batch_size, num_heads, key_dim, device=device, dtype=dtype)
+    raw_beta = torch.randn(batch_size, 1, num_heads, device=device, dtype=dtype)
+    a_log = torch.randn(num_heads, device=device, dtype=torch.float32)
+    dt_bias = torch.randn(num_heads, key_dim, device=device, dtype=torch.float32)
+    state_indices = torch.tensor([0, 2, 4, 5], device=device, dtype=torch.int64)
+    state = torch.randn(
+        num_slots,
+        num_heads,
+        value_dim,
+        key_dim,
+        device=device,
+        dtype=torch.float32,
+    )
+    expected_state = state.clone()
+    scale = key_dim**-0.5
+
+    q_end = num_heads * key_dim
+    k_end = 2 * q_end
+    query = mixed_qkv[:, :q_end].reshape(batch_size, num_heads, key_dim).float()
+    key = mixed_qkv[:, q_end:k_end].reshape(batch_size, num_heads, key_dim).float()
+    value = mixed_qkv[:, k_end:].reshape(batch_size, num_heads, value_dim).float()
+    query = torch.nn.functional.normalize(query, dim=-1, eps=1e-6) * scale
+    key = torch.nn.functional.normalize(key, dim=-1, eps=1e-6)
+    decay = -a_log.exp()[None, :, None] * torch.nn.functional.softplus(
+        raw_gate.float() + dt_bias[None]
+    )
+    beta = raw_beta.reshape(batch_size, num_heads).float().sigmoid()
+    if allow_neg_eigval:
+        beta *= 2.0
+    expected_output = torch.empty(
+        batch_size, num_heads, value_dim, device=device, dtype=torch.float32
+    )
+    for batch_index, slot in enumerate(state_indices.tolist()):
+        recurrent = expected_state[slot]
+        recurrent *= decay[batch_index].exp().unsqueeze(-2)
+        delta = value[batch_index] - torch.einsum(
+            "hvk,hk->hv", recurrent, key[batch_index]
+        )
+        delta *= beta[batch_index].unsqueeze(-1)
+        recurrent += torch.einsum("hv,hk->hvk", delta, key[batch_index])
+        expected_output[batch_index] = torch.einsum(
+            "hvk,hk->hv", recurrent, query[batch_index]
+        )
+
+    kernel = object.__new__(OlmoPackedKDAKernel)
+    kernel.allow_neg_eigval = allow_neg_eigval
+    actual_output = kernel.packed_decode(
+        mixed_qkv,
+        raw_gate,
+        raw_beta,
+        A_log=a_log,
+        dt_bias=dt_bias,
+        scale=scale,
+        ssm_states=state,
+        cache_indices=state_indices,
+        num_v_heads=num_heads,
+        head_v_dim=value_dim,
+    )
+    torch.cuda.synchronize()
+
+    torch.testing.assert_close(
+        actual_output[0].float(),
+        expected_output,
+        atol=2e-2,
+        rtol=2e-2,
+    )
+    torch.testing.assert_close(state, expected_state, atol=2e-4, rtol=2e-4)

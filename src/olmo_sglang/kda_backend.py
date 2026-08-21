@@ -440,6 +440,49 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         return self._run(q, k, v, g, beta, **run_kwargs)
 
 
+class OlmoPackedKDAKernel(OlmoFLAKDAKernel):
+    """FLA prefill/reference path plus fused OLMo-semantic one-token decode."""
+
+    supports_packed_decode = True
+
+    def packed_decode(
+        self,
+        mixed_qkv: torch.Tensor,
+        a: torch.Tensor,
+        b: torch.Tensor,
+        *,
+        A_log: torch.Tensor,
+        dt_bias: torch.Tensor,
+        scale: float,
+        ssm_states: torch.Tensor,
+        cache_indices: torch.Tensor,
+        num_v_heads: int,
+        head_v_dim: int,
+        lower_bound: float | None = None,
+        **kwargs: Any,
+    ) -> torch.Tensor:
+        if lower_bound is not None:
+            raise NotImplementedError(
+                "OLMo KDA does not use Kimi's safe-gate lower bound"
+            )
+        from olmo_sglang.packed_kda import olmo_packed_kda_decode
+
+        return olmo_packed_kda_decode(
+            mixed_qkv,
+            a,
+            b,
+            a_log=A_log,
+            dt_bias=dt_bias,
+            scale=scale,
+            state=ssm_states,
+            state_indices=cache_indices,
+            num_value_heads=num_v_heads,
+            value_dim=head_v_dim,
+            allow_neg_eigval=self.allow_neg_eigval,
+            **kwargs,
+        )
+
+
 class OlmoKDAAttnBackend(KDAAttnBackend):
     """SGLang KDA cache plumbing with FLA recurrence for OLMo semantics."""
 
@@ -450,8 +493,10 @@ class OlmoKDAAttnBackend(KDAAttnBackend):
             config.full_attention_layer_ids
         )
         model_runner.model_config.linear_layer_ids = config.linear_layer_ids
-        kernel = OlmoFLAKDAKernel(allow_neg_eigval=bool(config.linear_allow_neg_eigval))
+        kernel = OlmoPackedKDAKernel(
+            allow_neg_eigval=bool(config.linear_allow_neg_eigval)
+        )
         self.kernel_dispatcher.decode_kernel = kernel
         self.kernel_dispatcher.extend_kernel = kernel
         self.kernel_dispatcher.verify_kernel = kernel
-        self.kernel_dispatcher.supports_packed_decode = False
+        self.kernel_dispatcher.supports_packed_decode = True
