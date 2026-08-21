@@ -328,6 +328,25 @@ recovered immediately within the refreshed policy version. Reloading identical
 weights deliberately isolates cache lifecycle behavior; the production test
 must additionally transfer changed actor weights to every rollout replica.
 
+Exercise mixed prompt lengths through actual 64-token chunked prefill while
+reusing the same 256-token recurrent-state snapshot:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m olmo_sglang.radix_smoke \
+  --model /tmp/olmo-sglang-radix-long \
+  --prompt-length 300 \
+  --max-new-tokens 4 \
+  --mixed-chunked-prefill-probe \
+  --chunked-prefill-size 64 \
+  --mamba-radix-cache-strategy extra_buffer
+```
+
+This sends 268-, 300-, and 332-token prompts together after warming their
+shared 256-token prefix. Every request must report at least 256 cached tokens
+and match a fresh cache-disabled engine configured with the same prefill chunk
+size. It exercises ragged batching, handoff between prefill chunks, radix-state
+copy-on-write, and cached decode in one bounded local test.
+
 ## Local production-shaped parity loop
 
 Use the independent tiny reference before spending a full-checkpoint cycle on

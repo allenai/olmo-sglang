@@ -22,6 +22,7 @@ def _create_engine(
     disable_radix_cache: bool,
     mamba_radix_cache_strategy: str,
     context_length: int | None,
+    chunked_prefill_size: int | None = None,
 ) -> Any:
     """Create the correctness-first tiny-checkpoint SGLang engine."""
 
@@ -30,6 +31,9 @@ def _create_engine(
     if context_length is None:
         config = json.loads((model_path / "config.json").read_text(encoding="utf-8"))
         context_length = int(config["max_position_embeddings"])
+    engine_kwargs = {}
+    if chunked_prefill_size is not None:
+        engine_kwargs["chunked_prefill_size"] = chunked_prefill_size
     return sgl.Engine(
         model_path=str(model_path),
         trust_remote_code=True,
@@ -45,6 +49,7 @@ def _create_engine(
         max_total_tokens=max(64, context_length * 4),
         max_mamba_cache_size=32,
         mem_fraction_static=0.15,
+        **engine_kwargs,
     )
 
 
@@ -79,6 +84,151 @@ def _generate_batch(
         }
         for output in outputs
     ]
+
+
+def _generate_mixed_batch(
+    engine: Any, input_ids: list[list[int]], max_new_tokens: int
+) -> list[dict[str, Any]]:
+    """Submit different prompt lengths together as one scheduler batch."""
+
+    outputs = engine.generate(
+        input_ids=input_ids,
+        sampling_params={"temperature": 0, "max_new_tokens": max_new_tokens},
+    )
+    if not isinstance(outputs, list):
+        raise TypeError(f"Expected a batch of SGLang outputs, got {type(outputs)!r}")
+    return [
+        {
+            "input_ids": prompt,
+            "output_ids": output["output_ids"],
+            "cached_tokens": int(output["meta_info"]["cached_tokens"]),
+        }
+        for prompt, output in zip(input_ids, outputs, strict=True)
+    ]
+
+
+def _mixed_prompts(prompt_length: int, tracked_prefix_length: int) -> list[list[int]]:
+    """Build three different-length prompts sharing one tracked prefix."""
+
+    if prompt_length <= tracked_prefix_length + 32:
+        raise ValueError(
+            "prompt_length must exceed tracked_prefix_length by more than 32 tokens"
+        )
+    common = [5 + index % 30 for index in range(tracked_prefix_length)]
+    lengths = (prompt_length - 32, prompt_length, prompt_length + 32)
+    return [
+        common
+        + [
+            5 + (index + branch * 7) % 30
+            for index in range(length - tracked_prefix_length)
+        ]
+        for branch, length in enumerate(lengths)
+    ]
+
+
+def run_mixed_chunked_prefill_probe(
+    model_path: Path,
+    prompt_length: int,
+    max_new_tokens: int,
+    *,
+    chunked_prefill_size: int = 64,
+    tracked_prefix_length: int = 256,
+    mamba_radix_cache_strategy: str = "extra_buffer",
+    context_length: int | None = None,
+) -> dict[str, Any]:
+    """Validate mixed-length chunked prefill with a shared KDA radix snapshot.
+
+    A warm request creates a recurrent-state snapshot at the tracked prefix.
+    Three different prompt lengths then reuse that state while SGLang splits
+    their remaining prefill into bounded chunks. Their greedy continuations
+    must match a fresh cache-disabled engine using the same chunk size.
+
+    Args:
+        model_path: Tiny OLMo KDA checkpoint directory.
+        prompt_length: Center length of the three synthetic prompts.
+        max_new_tokens: Greedy tokens generated for each request.
+        chunked_prefill_size: Maximum tokens in one SGLang prefill chunk.
+        tracked_prefix_length: Expected recurrent-state checkpoint boundary.
+        mamba_radix_cache_strategy: SGLang recurrent radix-cache strategy.
+        context_length: Optional checkpoint context-length override.
+
+    Returns:
+        JSON-serializable warm, cached, and uncached request details.
+
+    Raises:
+        AssertionError: If the shared snapshot is not reused or changes output.
+        ValueError: If the requested shapes cannot exercise chunked prefill.
+    """
+
+    if chunked_prefill_size < 1:
+        raise ValueError("chunked_prefill_size must be positive")
+    if tracked_prefix_length % chunked_prefill_size != 0:
+        raise ValueError(
+            "tracked_prefix_length must be divisible by chunked_prefill_size"
+        )
+    prompts = _mixed_prompts(prompt_length, tracked_prefix_length)
+    resolved_context_length = context_length
+    if resolved_context_length is None:
+        config = json.loads((model_path / "config.json").read_text(encoding="utf-8"))
+        resolved_context_length = int(config["max_position_embeddings"])
+    required_context_length = len(prompts[-1]) + max_new_tokens
+    if required_context_length > resolved_context_length:
+        raise ValueError(
+            f"probe requires context length {required_context_length}, "
+            f"got {resolved_context_length}"
+        )
+
+    register()
+    cached_engine = _create_engine(
+        model_path,
+        disable_radix_cache=False,
+        mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+        context_length=resolved_context_length,
+        chunked_prefill_size=chunked_prefill_size,
+    )
+    try:
+        warm = _generate(cached_engine, prompts[-1], 1)
+        cached = _generate_mixed_batch(cached_engine, prompts, max_new_tokens)
+    finally:
+        cached_engine.shutdown()
+
+    uncached_engine = _create_engine(
+        model_path,
+        disable_radix_cache=True,
+        mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+        context_length=resolved_context_length,
+        chunked_prefill_size=chunked_prefill_size,
+    )
+    try:
+        uncached = _generate_mixed_batch(uncached_engine, prompts, max_new_tokens)
+    finally:
+        uncached_engine.shutdown()
+
+    cached_counts = [request["cached_tokens"] for request in cached]
+    if any(count < tracked_prefix_length for count in cached_counts):
+        raise AssertionError(
+            f"Expected every mixed request to reuse at least {tracked_prefix_length} "
+            f"tokens, got {cached_counts}"
+        )
+    mismatches = [
+        index
+        for index, (cached_request, uncached_request) in enumerate(
+            zip(cached, uncached, strict=True)
+        )
+        if cached_request["output_ids"] != uncached_request["output_ids"]
+    ]
+    if mismatches:
+        raise AssertionError(
+            "Mixed-length chunked prefill changed greedy output for request "
+            f"indices {mismatches}: cached={cached!r}, uncached={uncached!r}"
+        )
+    return {
+        "chunked_prefill_size": chunked_prefill_size,
+        "tracked_prefix_length": tracked_prefix_length,
+        "warm": warm,
+        "cached": cached,
+        "uncached": uncached,
+    }
 
 
 def run_radix_smoke(
@@ -314,8 +464,7 @@ def run_policy_refresh_probe(
 
     if before_refresh[1]["cached_tokens"] <= 0:
         raise AssertionError(
-            "Expected a cache hit before policy refresh, "
-            f"got {before_refresh[1]!r}"
+            f"Expected a cache hit before policy refresh, got {before_refresh[1]!r}"
         )
     if after_refresh[0]["cached_tokens"] != 0:
         raise AssertionError(
@@ -375,6 +524,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Require cache invalidation and recovery across a weight reload.",
     )
+    probe.add_argument(
+        "--mixed-chunked-prefill-probe",
+        action="store_true",
+        help="Validate shared-prefix reuse across mixed-length chunked prefill.",
+    )
+    parser.add_argument(
+        "--chunked-prefill-size",
+        type=int,
+        default=64,
+        help="Maximum tokens in one prefill chunk for the mixed-length probe.",
+    )
     parser.add_argument("--repeats", type=int, default=3)
     return parser.parse_args()
 
@@ -390,7 +550,17 @@ def main() -> None:
         if args.prompt_length < 2:
             raise ValueError("prompt_length must be at least 2")
         input_ids = [5 + index % 30 for index in range(args.prompt_length)]
-    if args.policy_refresh_probe:
+    if args.mixed_chunked_prefill_probe:
+        prompt_length = args.prompt_length if args.prompt_length is not None else 300
+        report = run_mixed_chunked_prefill_probe(
+            args.model,
+            prompt_length,
+            args.max_new_tokens,
+            chunked_prefill_size=args.chunked_prefill_size,
+            mamba_radix_cache_strategy=args.mamba_radix_cache_strategy,
+            context_length=args.context_length,
+        )
+    elif args.policy_refresh_probe:
         report = run_policy_refresh_probe(
             args.model,
             input_ids,
