@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from olmo_sglang.radix_smoke import _control_result, _mixed_prompts
+from olmo_sglang.radix_smoke import _control_result, _finish_reason, _mixed_prompts
 
 
 def test_control_result_accepts_structured_and_tuple_responses():
@@ -34,3 +34,11 @@ def test_mixed_prompts_share_prefix_and_vary_lengths():
 def test_mixed_prompts_reject_too_short_center():
     with pytest.raises(ValueError, match="must exceed tracked_prefix_length"):
         _mixed_prompts(prompt_length=288, tracked_prefix_length=256)
+
+
+def test_finish_reason_extracts_structured_type():
+    assert (
+        _finish_reason({"meta_info": {"finish_reason": {"type": "abort"}}}) == "abort"
+    )
+    assert _finish_reason({"meta_info": {"finish_reason": None}}) is None
+    assert _finish_reason({}) is None

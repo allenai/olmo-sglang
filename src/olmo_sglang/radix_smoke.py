@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -23,6 +24,8 @@ def _create_engine(
     mamba_radix_cache_strategy: str,
     context_length: int | None,
     chunked_prefill_size: int | None = None,
+    max_running_requests: int | None = None,
+    max_mamba_cache_size: int = 32,
 ) -> Any:
     """Create the correctness-first tiny-checkpoint SGLang engine."""
 
@@ -34,6 +37,8 @@ def _create_engine(
     engine_kwargs = {}
     if chunked_prefill_size is not None:
         engine_kwargs["chunked_prefill_size"] = chunked_prefill_size
+    if max_running_requests is not None:
+        engine_kwargs["max_running_requests"] = max_running_requests
     return sgl.Engine(
         model_path=str(model_path),
         trust_remote_code=True,
@@ -47,7 +52,7 @@ def _create_engine(
         attention_backend="torch_native",
         context_length=context_length,
         max_total_tokens=max(64, context_length * 4),
-        max_mamba_cache_size=32,
+        max_mamba_cache_size=max_mamba_cache_size,
         mem_fraction_static=0.15,
         **engine_kwargs,
     )
@@ -228,6 +233,180 @@ def run_mixed_chunked_prefill_probe(
         "warm": warm,
         "cached": cached,
         "uncached": uncached,
+    }
+
+
+def _finish_reason(output: dict[str, Any]) -> str | None:
+    """Extract SGLang's structured finish-reason type."""
+
+    finish_reason = output.get("meta_info", {}).get("finish_reason")
+    return finish_reason.get("type") if isinstance(finish_reason, dict) else None
+
+
+async def _run_cancellation_batch(
+    engine: Any,
+    prompts: list[list[int]],
+    max_new_tokens: int,
+    aborted_indices: tuple[int, ...],
+    abort_delay_seconds: float,
+) -> list[dict[str, Any]]:
+    """Submit one overloaded batch and cancel selected request IDs."""
+
+    request_ids = [f"olmo-kda-cancel-{index}" for index in range(len(prompts))]
+    tasks = [
+        asyncio.create_task(
+            engine.async_generate(
+                input_ids=prompt,
+                sampling_params={
+                    "temperature": 0,
+                    "max_new_tokens": max_new_tokens,
+                    "ignore_eos": True,
+                },
+                rid=request_id,
+            )
+        )
+        for request_id, prompt in zip(request_ids, prompts, strict=True)
+    ]
+    await asyncio.sleep(abort_delay_seconds)
+    for index in aborted_indices:
+        engine.tokenizer_manager.abort_request(rid=request_ids[index])
+    return await asyncio.wait_for(asyncio.gather(*tasks), timeout=120)
+
+
+def run_cancellation_probe(
+    model_path: Path,
+    prompt_length: int,
+    max_new_tokens: int,
+    *,
+    abort_delay_seconds: float = 0.1,
+    chunked_prefill_size: int = 64,
+    max_running_requests: int = 2,
+    max_mamba_cache_size: int = 22,
+    mamba_radix_cache_strategy: str = "extra_buffer",
+    context_length: int | None = None,
+) -> dict[str, Any]:
+    """Cancel running and queued work, then prove KDA state remains usable.
+
+    Four requests are submitted to an engine that admits two at a time. The
+    first and last request IDs are cancelled after scheduling begins, covering
+    one expected running request and one expected queued request. All responses
+    must terminate, both cancellations must be acknowledged, and a subsequent
+    mixed batch must match a fresh cache-disabled engine before an idle cache
+    flush succeeds.
+
+    Args:
+        model_path: Tiny OLMo KDA checkpoint directory.
+        prompt_length: Center length of the synthetic request batch.
+        max_new_tokens: Ignore-EOS decode length used to keep work cancellable.
+        abort_delay_seconds: Time allowed for scheduler admission before abort.
+        chunked_prefill_size: Maximum tokens in one SGLang prefill chunk.
+        max_running_requests: Admission ceiling for the overloaded batch.
+        max_mamba_cache_size: Recurrent-state slots available to the engine.
+        mamba_radix_cache_strategy: SGLang recurrent radix-cache strategy.
+        context_length: Optional checkpoint context-length override.
+
+    Returns:
+        JSON-serializable cancellation and post-cancellation parity details.
+
+    Raises:
+        AssertionError: If cancellation, recovery parity, or cleanup fails.
+        ValueError: If the requested workload cannot create queue pressure.
+    """
+
+    if max_running_requests < 1:
+        raise ValueError("max_running_requests must be positive")
+    if max_running_requests >= 4:
+        raise ValueError("max_running_requests must be less than four")
+    if max_new_tokens < 16:
+        raise ValueError("max_new_tokens must be at least 16 for cancellation")
+    if abort_delay_seconds <= 0:
+        raise ValueError("abort_delay_seconds must be positive")
+
+    base_prompts = _mixed_prompts(prompt_length, tracked_prefix_length=256)
+    prompts = [base_prompts[0], base_prompts[1], base_prompts[2], base_prompts[1]]
+    resolved_context_length = context_length
+    if resolved_context_length is None:
+        config = json.loads((model_path / "config.json").read_text(encoding="utf-8"))
+        resolved_context_length = int(config["max_position_embeddings"])
+    required_context_length = max(map(len, prompts)) + max_new_tokens
+    if required_context_length > resolved_context_length:
+        raise ValueError(
+            f"probe requires context length {required_context_length}, "
+            f"got {resolved_context_length}"
+        )
+
+    register()
+    engine = _create_engine(
+        model_path,
+        disable_radix_cache=False,
+        mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+        context_length=resolved_context_length,
+        chunked_prefill_size=chunked_prefill_size,
+        max_running_requests=max_running_requests,
+        max_mamba_cache_size=max_mamba_cache_size,
+    )
+    aborted_indices = (0, 3)
+    try:
+        outputs = engine.loop.run_until_complete(
+            _run_cancellation_batch(
+                engine,
+                prompts,
+                max_new_tokens,
+                aborted_indices,
+                abort_delay_seconds,
+            )
+        )
+        recovery_prompts = [prompts[1], prompts[2]]
+        recovered = _generate_mixed_batch(engine, recovery_prompts, 4)
+        flush = _control_result("post-cancellation cache flush", engine.flush_cache())
+    finally:
+        engine.shutdown()
+
+    uncached_engine = _create_engine(
+        model_path,
+        disable_radix_cache=True,
+        mamba_radix_cache_strategy=mamba_radix_cache_strategy,
+        context_length=resolved_context_length,
+        chunked_prefill_size=chunked_prefill_size,
+        max_running_requests=max_running_requests,
+        max_mamba_cache_size=max_mamba_cache_size,
+    )
+    try:
+        uncached = _generate_mixed_batch(uncached_engine, recovery_prompts, 4)
+    finally:
+        uncached_engine.shutdown()
+
+    reasons = [_finish_reason(output) for output in outputs]
+    if any(reasons[index] != "abort" for index in aborted_indices):
+        raise AssertionError(
+            f"Expected request indices {aborted_indices} to abort, got {reasons}"
+        )
+    surviving_indices = set(range(len(outputs))) - set(aborted_indices)
+    if any(reasons[index] == "abort" for index in surviving_indices):
+        raise AssertionError(f"Unexpected survivor cancellation: {reasons}")
+    mismatches = [
+        index
+        for index, (recovered_request, uncached_request) in enumerate(
+            zip(recovered, uncached, strict=True)
+        )
+        if recovered_request["output_ids"] != uncached_request["output_ids"]
+    ]
+    if mismatches:
+        raise AssertionError(
+            "Post-cancellation KDA state changed greedy output for request "
+            f"indices {mismatches}: recovered={recovered!r}, uncached={uncached!r}"
+        )
+    return {
+        "max_running_requests": max_running_requests,
+        "max_mamba_cache_size": max_mamba_cache_size,
+        "aborted_indices": aborted_indices,
+        "finish_reasons": reasons,
+        "output_token_counts": [
+            len(output.get("output_ids", [])) for output in outputs
+        ],
+        "recovered": recovered,
+        "uncached": uncached,
+        "flush": flush,
     }
 
 
@@ -529,6 +708,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Validate shared-prefix reuse across mixed-length chunked prefill.",
     )
+    probe.add_argument(
+        "--cancellation-probe",
+        action="store_true",
+        help="Cancel running and queued requests, then validate state recovery.",
+    )
     parser.add_argument(
         "--chunked-prefill-size",
         type=int,
@@ -550,7 +734,17 @@ def main() -> None:
         if args.prompt_length < 2:
             raise ValueError("prompt_length must be at least 2")
         input_ids = [5 + index % 30 for index in range(args.prompt_length)]
-    if args.mixed_chunked_prefill_probe:
+    if args.cancellation_probe:
+        prompt_length = args.prompt_length if args.prompt_length is not None else 300
+        report = run_cancellation_probe(
+            args.model,
+            prompt_length,
+            args.max_new_tokens,
+            chunked_prefill_size=args.chunked_prefill_size,
+            mamba_radix_cache_strategy=args.mamba_radix_cache_strategy,
+            context_length=args.context_length,
+        )
+    elif args.mixed_chunked_prefill_probe:
         prompt_length = args.prompt_length if args.prompt_length is not None else 300
         report = run_mixed_chunked_prefill_probe(
             args.model,

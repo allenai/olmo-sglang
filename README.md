@@ -347,6 +347,25 @@ and match a fresh cache-disabled engine configured with the same prefill chunk
 size. It exercises ragged batching, handoff between prefill chunks, radix-state
 copy-on-write, and cached decode in one bounded local test.
 
+Exercise cancellation cleanup while the KDA scheduler has both running and
+queued work:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m olmo_sglang.radix_smoke \
+  --model /tmp/olmo-sglang-radix-long \
+  --prompt-length 300 \
+  --max-new-tokens 128 \
+  --cancellation-probe \
+  --chunked-prefill-size 64 \
+  --mamba-radix-cache-strategy extra_buffer
+```
+
+The probe submits four ignore-EOS requests with a two-request admission cap,
+cancels the first and last request IDs, and requires both abort responses. It
+then sends a recovery batch, compares it with a fresh cache-disabled engine,
+and requires an idle cache flush to succeed. This catches leaked recurrent
+slots and state contamination after both running and queued cancellation.
+
 ## Local production-shaped parity loop
 
 Use the independent tiny reference before spending a full-checkpoint cycle on
