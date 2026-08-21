@@ -171,16 +171,29 @@ class OlmoKDAStateShape:
     conv_slice_axis: int = 1
 
     @classmethod
-    def from_config(cls, config: Any) -> OlmoKDAStateShape:
-        """Build the TP=1 cache shape from an OLMo HF config."""
+    def from_config(cls, config: Any, *, tp_world_size: int = 1) -> OlmoKDAStateShape:
+        """Build the per-rank cache shape from an OLMo HF config."""
 
         key_dim = config.linear_num_key_heads * config.linear_key_head_dim
         value_dim = config.linear_num_value_heads * config.linear_value_head_dim
         conv_kernel = config.linear_conv_kernel_dim
+        if config.linear_num_key_heads % tp_world_size:
+            raise ValueError("linear_num_key_heads must be divisible by TP size")
+        if config.linear_num_value_heads % tp_world_size:
+            raise ValueError("linear_num_value_heads must be divisible by TP size")
+        if key_dim % tp_world_size or value_dim % tp_world_size:
+            raise ValueError(
+                "linear KDA projection widths must be divisible by TP size"
+            )
         return cls(
-            conv=[(conv_kernel - 1, 2 * key_dim + value_dim)],
+            conv=[
+                (
+                    conv_kernel - 1,
+                    (2 * key_dim + value_dim) // tp_world_size,
+                )
+            ],
             temporal=(
-                config.linear_num_value_heads,
+                config.linear_num_value_heads // tp_world_size,
                 config.linear_value_head_dim,
                 config.linear_key_head_dim,
             ),
@@ -190,7 +203,7 @@ class OlmoKDAStateShape:
             head_k_dim=config.linear_key_head_dim,
             conv_kernel=conv_kernel,
             conv_shard_groups=[key_dim, key_dim, value_dim],
-            num_k_heads_per_tp=config.linear_num_key_heads,
+            num_k_heads_per_tp=config.linear_num_key_heads // tp_world_size,
         )
 
 
@@ -241,8 +254,16 @@ def _prepare_olmo_config(config: Any) -> bool:
         for index, layer_type in enumerate(layer_types)
         if layer_type != "linear_attention"
     ]
+    from sglang.srt.runtime_context import get_parallel
+
+    try:
+        tp_world_size = get_parallel().attn_tp_size
+    except AssertionError:
+        # ModelConfig is also constructed once before distributed groups exist.
+        # Every TP worker constructs a fresh copy after group initialization.
+        tp_world_size = 1
     config.mamba2_cache_params = OlmoKDACacheParams(
-        shape=OlmoKDAStateShape.from_config(config),
+        shape=OlmoKDAStateShape.from_config(config, tp_world_size=tp_world_size),
         layers=linear_layer_ids,
         dtype=Mamba2StateDType(
             conv=_model_activation_dtype(config),

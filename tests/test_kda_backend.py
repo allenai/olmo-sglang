@@ -4,6 +4,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 import torch
+from sglang.srt.runtime_context import get_parallel
 
 from olmo_sglang import kda_backend
 from olmo_sglang.kda_backend import (
@@ -36,6 +37,21 @@ def test_olmo_kda_state_shape_supports_unequal_key_value_widths():
     assert shape.conv_shard_groups == [32, 32, 64]
 
 
+def test_olmo_kda_state_shape_shards_heads_and_conv_groups_for_tp2():
+    shape = OlmoKDAStateShape.from_config(_config(), tp_world_size=2)
+    assert shape.conv == [(3, 64)]
+    assert shape.temporal == (2, 16, 8)
+    assert shape.num_heads == 4
+    assert shape.num_k_heads == 4
+    assert shape.num_k_heads_per_tp == 2
+    assert shape.conv_shard_groups == [32, 32, 64]
+
+
+def test_olmo_kda_state_shape_rejects_nondivisible_tp():
+    with pytest.raises(ValueError, match="linear_num_key_heads"):
+        OlmoKDAStateShape.from_config(_config(), tp_world_size=3)
+
+
 def test_prepare_olmo_config_marks_hybrid_layers_and_cache():
     config = _config()
     assert _prepare_olmo_config(config)
@@ -44,6 +60,15 @@ def test_prepare_olmo_config_marks_hybrid_layers_and_cache():
     assert config.mamba2_cache_params.dtype.conv is torch.float16
     assert config.mamba2_cache_params.dtype.temporal is torch.float32
     assert config.mamba2_cache_params.layers == [0]
+
+
+def test_prepare_olmo_config_uses_worker_attention_tp_size():
+    config = _config()
+    with get_parallel().override(attn_tp_size=2):
+        assert _prepare_olmo_config(config)
+
+    assert config.mamba2_cache_params.shape.conv == [(3, 64)]
+    assert config.mamba2_cache_params.shape.temporal == (2, 16, 8)
 
 
 def test_prepare_olmo_config_ignores_attention_only_model():

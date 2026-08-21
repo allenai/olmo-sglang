@@ -18,6 +18,7 @@ olmo-sglang-smoke = "olmo_sglang.infer:main"
 olmo-sglang-parity = "olmo_sglang.parity:main"
 olmo-sglang-radix-smoke = "olmo_sglang.radix_smoke:main"
 olmo-sglang-speculative-smoke = "olmo_sglang.speculative_smoke:main"
+olmo-sglang-tp-smoke = "olmo_sglang.tp_smoke:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
