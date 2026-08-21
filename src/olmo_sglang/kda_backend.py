@@ -480,6 +480,26 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
             )
         if intermediate_states_buffer is None:
             raise RuntimeError("OLMo KDA target_verify requires intermediate states")
+        if q.is_cuda:
+            from olmo_sglang.speculative_kda import olmo_kda_target_verify
+
+            return olmo_kda_target_verify(
+                a_log=A_log,
+                dt_bias=dt_bias,
+                q=q,
+                k=k,
+                v=v,
+                raw_gate=a,
+                raw_beta=b,
+                state=ssm_states,
+                state_indices=cache_indices,
+                query_start_loc=query_start_loc,
+                scratch=intermediate_states_buffer,
+                scratch_indices=intermediate_state_indices,
+                cache_steps=cache_steps,
+                retrieve_parent_token=retrieve_parent_token,
+                allow_neg_eigval=self.allow_neg_eigval,
+            )
         if q.ndim != 4 or q.shape[0] != 1:
             raise ValueError(
                 "q, k, and v must use packed [1, tokens, heads, dim] layout"

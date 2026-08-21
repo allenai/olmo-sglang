@@ -36,9 +36,10 @@ size. Correctness-first speculative verification follows both linear chains and
 explicit tree parents, while changed-weight numerical attribution across an RL
 policy refresh remains open. The idle refresh lifecycle, production MILES
 refresh path, and breadth-one NGRAM target verification are validated. Tree
-state traversal has focused recurrence parity, but no branching draft engine has
-run end to end yet. The verifier is not a fused production kernel. This is not
-yet the final optimized serving kernel.
+state traversal has focused recurrence parity, and the GPU verifier is fused,
+free of host synchronization, and validated under CUDA-graph replay. No
+branching draft engine has run end to end yet, and speculative performance has
+not been screened. This is not yet the final optimized serving kernel.
 
 FLA is optional; attention-only checkpoints do not import it.
 
@@ -87,9 +88,15 @@ confused with complete production serving support.
   matched all 16 ordinary greedy tokens on a production-shaped local model. A
   focused branching-tree test independently reproduces every node output and
   snapshot while proving the committed state is unchanged.
-- [ ] **Production speculative kernel:** fuse the chain/tree verifier, remove
-  its eager host synchronization/PyTorch loop, support CUDA-graph replay, run a
-  branching draft algorithm end to end, and complete a performance screen.
+- [x] **Fused speculative verifier:** replace the GPU host-synchronized PyTorch
+  loop with an overlay-owned Triton recurrence that supports ragged chains,
+  explicit tree parents, OLMo's optional `2 * sigmoid(beta)` semantics, invalid
+  cache slots, and CUDA-graph replay. The eager CPU path remains the independent
+  correctness oracle.
+- [ ] **Production speculative screen:** run a branching draft algorithm end to
+  end, enable the whole-engine speculative CUDA-graph path, and measure proposed
+  tokens, acceptance, verifier latency, and net throughput against ordinary
+  decoding.
 - [x] **Tensor parallelism greater than one:** shard the KDA projections,
   unequal-width K/V heads, convolution windows, and recurrent state correctly;
   compare TP=1 and TP=2 greedy generation plus chosen-token log probabilities.
@@ -432,13 +439,15 @@ random weights; this probe is a correctness gate, not a speed benchmark.
 This smoke intentionally uses a linear draft chain. The verifier also accepts
 SGLang's explicit tree-parent tensor and resumes each node from its parent's
 snapshot; a focused test checks that recurrence against an independent
-reference. It runs eager PyTorch recurrence and writes every post-token state
-to SGLang's intermediate state pool without mutating the committed pool.
-SGLang's central commit then selects the accepted state, so rejection and
-rollback use its normal lifecycle. CUDA graphs are disabled for the smoke test.
-An end-to-end branching NGRAM or EAGLE run, a fused verifier, and speculative
-performance validation remain TODOs. The repository's 8-wide tiny
-full-attention fixture is below
+reference. CUDA uses a fused overlay-owned Triton recurrence and writes every
+post-token state to SGLang's intermediate state pool without mutating the
+committed pool; CPU retains the eager reference implementation. Kernel-level
+CUDA-graph replay with changed inputs and state is covered locally. SGLang's
+central commit then selects the accepted state, so rejection and rollback use
+its normal lifecycle. CUDA graphs remain disabled in this end-to-end smoke. A
+branching NGRAM or EAGLE run, whole-engine speculative graph validation, and a
+performance screen remain TODOs. The repository's 8-wide tiny full-attention
+fixture is below
 FlashInfer's supported production head sizes, so use a production-shaped local
 fixture or the real checkpoint for this command.
 
