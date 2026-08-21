@@ -314,27 +314,71 @@ def test_kda_target_verify_snapshots_ragged_chains_without_committing():
     assert batch_size == len(starts) - 1
 
 
-def test_kda_target_verify_rejects_tree_speculation():
+def test_kda_target_verify_follows_tree_parent_states_without_committing():
+    torch.manual_seed(17)
+    token_count = 4
+    key_dim, value_dim = 2, 3
+    q = torch.randn(1, token_count, 1, key_dim)
+    k = torch.randn_like(q)
+    v = torch.randn(1, token_count, 1, value_dim)
+    raw_gate = torch.randn(token_count, 1, key_dim)
+    raw_beta = torch.randn(1, token_count, 1)
+    a_log = torch.randn(1)
+    dt_bias = torch.randn(1, key_dim)
+    state_pool = torch.randn(1, 1, value_dim, key_dim)
+    original_state_pool = state_pool.clone()
+    scratch = torch.full((1, token_count, 1, value_dim, key_dim), float("nan"))
+    parents = torch.tensor([[0, 0, 0, 1]], dtype=torch.int32)
+
     kernel = object.__new__(kda_backend.OlmoFLAKDAKernel)
     kernel.allow_neg_eigval = True
-    q = torch.zeros(1, 1, 1, 2)
-    with pytest.raises(RuntimeError, match="linear chains only"):
-        kernel.target_verify(
-            A_log=torch.zeros(1),
-            dt_bias=torch.zeros(1, 2),
-            q=q,
-            k=q,
-            v=q,
-            a=torch.zeros(1, 1, 2),
-            b=torch.zeros(1, 1, 1),
-            ssm_states=torch.zeros(1, 1, 2, 2),
-            cache_indices=torch.zeros(1, dtype=torch.int32),
-            query_start_loc=torch.tensor([0, 1], dtype=torch.int32),
-            intermediate_states_buffer=torch.zeros(1, 1, 1, 2, 2),
-            intermediate_state_indices=torch.zeros(1, dtype=torch.int32),
-            cache_steps=1,
-            retrieve_parent_token=torch.zeros(1, dtype=torch.int32),
+    actual = kernel.target_verify(
+        A_log=a_log,
+        dt_bias=dt_bias,
+        q=q,
+        k=k,
+        v=v,
+        a=raw_gate,
+        b=raw_beta,
+        ssm_states=state_pool,
+        cache_indices=torch.zeros(1, dtype=torch.int32),
+        query_start_loc=torch.tensor([0, token_count], dtype=torch.int32),
+        intermediate_states_buffer=scratch,
+        intermediate_state_indices=torch.zeros(1, dtype=torch.int32),
+        cache_steps=token_count,
+        retrieve_parent_token=parents,
+    )
+
+    normalized_q = q.float()
+    normalized_k = k.float()
+    normalized_q *= torch.rsqrt(
+        (normalized_q * normalized_q).sum(dim=-1, keepdim=True) + 1e-6
+    )
+    normalized_q *= key_dim**-0.5
+    normalized_k *= torch.rsqrt(
+        (normalized_k * normalized_k).sum(dim=-1, keepdim=True) + 1e-6
+    )
+    expected = torch.empty_like(v)
+    expected_states = []
+    for step in range(token_count):
+        state = (
+            original_state_pool[0].clone()
+            if step == 0
+            else expected_states[parents[0, step].item()].clone()
         )
+        decay = -a_log.exp()[:, None] * torch.nn.functional.softplus(
+            raw_gate[step] + dt_bias
+        )
+        state *= decay.exp().unsqueeze(-2)
+        delta = v[0, step] - torch.einsum("hvk,hk->hv", state, normalized_k[0, step])
+        delta *= (2.0 * raw_beta[0, step].sigmoid()).unsqueeze(-1)
+        state += torch.einsum("hv,hk->hvk", delta, normalized_k[0, step])
+        expected[0, step] = torch.einsum("hvk,hk->hv", state, normalized_q[0, step])
+        expected_states.append(state)
+
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(state_pool, original_state_pool)
+    torch.testing.assert_close(scratch[0], torch.stack(expected_states))
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")

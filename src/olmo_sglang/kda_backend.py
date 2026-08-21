@@ -467,19 +467,13 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         lower_bound: float | None = None,
         **_: Any,
     ) -> torch.Tensor:
-        """Verify linear draft chains without mutating committed KDA states.
+        """Verify draft chains or trees without mutating committed KDA states.
 
         This correctness-first path snapshots every post-token recurrent state so
-        SGLang can commit the accepted step centrally. Tree speculation requires
-        following a different state ancestor for each node and is intentionally
-        rejected until an OLMo-semantic fused verifier provides that traversal.
+        SGLang can commit the accepted step centrally. For a speculative tree,
+        each node resumes from the intermediate state of its declared parent.
         """
 
-        if retrieve_parent_token is not None:
-            raise RuntimeError(
-                "OLMo KDA speculative verification currently supports linear "
-                "chains only (retrieve_parent_token must be None)"
-            )
         if lower_bound is not None:
             raise NotImplementedError(
                 "OLMo KDA does not use Kimi's safe-gate lower bound"
@@ -522,6 +516,11 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
             raise ValueError(
                 "intermediate_state_indices has fewer entries than the verify batch"
             )
+        if retrieve_parent_token is not None and (
+            retrieve_parent_token.ndim != 2
+            or retrieve_parent_token.shape[0] < batch_size
+        ):
+            raise ValueError("retrieve_parent_token must have shape [batch, steps]")
 
         with torch.inference_mode():
             for request_index, (start, end) in enumerate(pairwise(starts)):
@@ -529,6 +528,13 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
                 if request_steps > cache_steps:
                     raise ValueError(
                         f"request has {request_steps} verify tokens but cache_steps={cache_steps}"
+                    )
+                if (
+                    retrieve_parent_token is not None
+                    and retrieve_parent_token.shape[1] < request_steps
+                ):
+                    raise ValueError(
+                        "retrieve_parent_token has fewer steps than the verify request"
                     )
                 state_index = int(cache_indices[request_index].item())
                 scratch_index = int(intermediate_state_indices[request_index].item())
@@ -539,6 +545,21 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
 
                 state = ssm_states[state_index].float().clone()
                 for step, token_index in enumerate(range(start, end)):
+                    if retrieve_parent_token is not None and step:
+                        parent_step = int(
+                            retrieve_parent_token[request_index, step].item()
+                        )
+                        if parent_step < 0 or parent_step >= step:
+                            raise ValueError(
+                                "retrieve_parent_token must reference an earlier "
+                                f"node: request={request_index}, step={step}, "
+                                f"parent={parent_step}"
+                            )
+                        state = (
+                            intermediate_states_buffer[scratch_index, parent_step]
+                            .float()
+                            .clone()
+                        )
                     log_decay = -decay_parameter[
                         :, None
                     ] * torch.nn.functional.softplus(
