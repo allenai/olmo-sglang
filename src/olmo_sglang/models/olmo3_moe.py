@@ -1,4 +1,3 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """Inference-only Olmo3MoE implementation for SGLang.

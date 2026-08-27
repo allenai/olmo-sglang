@@ -1,4 +1,3 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """Configuration validation shared by the model and lightweight tests."""
