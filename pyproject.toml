@@ -28,7 +28,7 @@ testpaths = ["tests"]
 addopts = "-ra"
 
 [tool.olmo-sglang.compatibility]
-sglang-version = "0.5.18"
+sglang-version = "0.5.19.dev48+g3bbb281"
 sglang-source-commit = "3bbb2812e2ca1defdee76f6ec09dbb2456c21c69"
 sglang-tag-object = "ff4c6e641d9f9bb174d34ff651c01c114aea8e40"
 sglang-miles-audit-commit = "3bbb2812e2ca1defdee76f6ec09dbb2456c21c69"
