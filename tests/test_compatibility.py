@@ -9,7 +9,7 @@ def test_sglang_compatibility_source_is_frozen() -> None:
 
     assert compatibility == {
         "sglang-version": "0.5.18",
-        "sglang-source-commit": "71de97b264b04dcd514cf904003028aefe9775c8",
+        "sglang-source-commit": "3bbb2812e2ca1defdee76f6ec09dbb2456c21c69",
         "sglang-tag-object": "ff4c6e641d9f9bb174d34ff651c01c114aea8e40",
         "sglang-miles-audit-commit": "3bbb2812e2ca1defdee76f6ec09dbb2456c21c69",
     }

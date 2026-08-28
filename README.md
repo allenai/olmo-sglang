@@ -8,11 +8,11 @@ does not need to be patched.
 
 ## Current milestone
 
-The compatibility target is SGLang 0.5.18 at source commit
-`71de97b264b04dcd514cf904003028aefe9775c8` (annotated tag object
-`ff4c6e641d9f9bb174d34ff651c01c114aea8e40`). The prior `sglang-miles`
-integration point `3bbb2812e2ca1defdee76f6ec09dbb2456c21c69` is retained only as
-audit provenance; this package does not create or require an SGLang fork.
+The compatibility target is the official `sgl-project/sglang` `sglang-miles`
+commit `3bbb2812e2ca1defdee76f6ec09dbb2456c21c69`, 48 commits beyond the 0.5.18
+tag (annotated tag object `ff4c6e641d9f9bb174d34ff651c01c114aea8e40`, peeled source
+`71de97b264b04dcd514cf904003028aefe9775c8`). This package does not create or
+require an SGLang fork.
 
 - Native full and sliding-window attention.
 - Native OLMo KDA prefill and cached decode through FLA 0.5.2.
