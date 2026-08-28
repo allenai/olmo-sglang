@@ -8,6 +8,12 @@ does not need to be patched.
 
 ## Current milestone
 
+The compatibility target is SGLang 0.5.18 at source commit
+`71de97b264b04dcd514cf904003028aefe9775c8` (annotated tag object
+`ff4c6e641d9f9bb174d34ff651c01c114aea8e40`). The prior `sglang-miles`
+integration point `3bbb2812e2ca1defdee76f6ec09dbb2456c21c69` is retained only as
+audit provenance; this package does not create or require an SGLang fork.
+
 - Native full and sliding-window attention.
 - Native OLMo KDA prefill and cached decode through FLA 0.5.2.
 - Exact negative-eigenvalue semantics: raw beta logits use `2 * sigmoid(beta)`.
