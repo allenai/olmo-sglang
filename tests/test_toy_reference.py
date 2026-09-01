@@ -9,10 +9,10 @@ import pytest
 import torch
 from transformers import AutoTokenizer
 
-from olmo_sglang.toy_reference import ToyReferenceForCausalLM, trace_summary
+from olmo_sglang.validation.reference import ToyReferenceForCausalLM, trace_summary
 
 GENERATOR_PATH = (
-    Path(__file__).parents[1] / "examples" / "create_tiny_parity_checkpoint.py"
+    Path(__file__).parents[1] / "tools" / "create_tiny_parity_checkpoint.py"
 )
 
 

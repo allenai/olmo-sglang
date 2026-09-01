@@ -1,3 +1,4 @@
+import importlib
 import sys
 from itertools import pairwise
 from types import ModuleType, SimpleNamespace
@@ -6,8 +7,8 @@ import pytest
 import torch
 from sglang.srt.runtime_context import get_parallel
 
-from olmo_sglang import kda_backend
-from olmo_sglang.kda_backend import (
+from olmo_sglang.kda import backend as kda_backend
+from olmo_sglang.kda.backend import (
     OlmoKDAStateShape,
     OlmoPackedKDAKernel,
     _OlmoKDAConfig,
@@ -28,6 +29,13 @@ def _config():
         linear_num_value_heads=4,
         linear_value_head_dim=16,
     )
+
+
+def test_historical_backend_module_reexports_public_api():
+    historical = importlib.import_module("olmo_sglang.kda_backend")
+
+    assert historical.OlmoKDAAttnBackend is kda_backend.OlmoKDAAttnBackend
+    assert historical.register_olmo_kda_backend is kda_backend.register_olmo_kda_backend
 
 
 def test_olmo_kda_state_shape_supports_unequal_key_value_widths():

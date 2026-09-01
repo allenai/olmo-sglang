@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from olmo_sglang import speculative_smoke
+from olmo_sglang.validation import speculative as speculative_smoke
 
 
 class _RecordingEngine:

@@ -4,7 +4,7 @@ import pytest
 import torch
 from sglang.srt.runtime_context import get_parallel
 
-from olmo_sglang.kda_layer import Olmo3MoeKDAAttention
+from olmo_sglang.kda.layer import Olmo3MoeKDAAttention
 
 
 def _config():

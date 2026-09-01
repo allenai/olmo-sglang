@@ -6,8 +6,9 @@ from __future__ import annotations
 
 from typing import Any
 
-
-SUPPORTED_ATTENTION_TYPES = frozenset({"full_attention", "linear_attention", "sliding_attention"})
+SUPPORTED_ATTENTION_TYPES = frozenset(
+    {"full_attention", "linear_attention", "sliding_attention"}
+)
 
 
 def validate_olmo3_moe_config(config: Any) -> None:
@@ -39,11 +40,19 @@ def validate_olmo3_moe_config(config: Any) -> None:
         if missing:
             raise ValueError(f"Olmo KDA config is missing required fields: {missing}")
         if config.linear_num_key_heads != config.linear_num_value_heads:
-            raise NotImplementedError("The initial native Olmo KDA path requires matching key and value head counts")
+            raise NotImplementedError(
+                "The initial native Olmo KDA path requires matching key and value head counts"
+            )
         if not 1 <= config.linear_key_head_dim <= 256:
-            raise NotImplementedError("The native Olmo KDA path requires key head dimensions in [1, 256]")
+            raise NotImplementedError(
+                "The native Olmo KDA path requires key head dimensions in [1, 256]"
+            )
 
     if getattr(config, "gating_function", "softmax") != "softmax":
-        raise NotImplementedError("The native SGLang path currently supports softmax routing only")
+        raise NotImplementedError(
+            "The native SGLang path currently supports softmax routing only"
+        )
     if getattr(config, "normalize_expert_weights", 1.0) != 1.0:
-        raise NotImplementedError("The native SGLang path requires L1-normalized expert weights")
+        raise NotImplementedError(
+            "The native SGLang path requires L1-normalized expert weights"
+        )

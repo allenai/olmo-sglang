@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Create a deterministic tiny OLMo hybrid checkpoint for SGLang smoke tests."""
+"""Create a deterministic tiny OLMo hybrid checkpoint for validation."""
 
 from __future__ import annotations
 
@@ -12,12 +12,13 @@ from pathlib import Path
 import torch
 from safetensors.torch import save_file
 
-
 LOGGER = logging.getLogger(__name__)
 
 
 def _randn(shape: tuple[int, ...], generator: torch.Generator) -> torch.Tensor:
-    return torch.randn(shape, generator=generator, dtype=torch.float32).mul_(0.02).half()
+    return (
+        torch.randn(shape, generator=generator, dtype=torch.float32).mul_(0.02).half()
+    )
 
 
 def build_checkpoint(output_dir: Path) -> None:
@@ -71,7 +72,9 @@ def build_checkpoint(output_dir: Path) -> None:
         "use_rope": False,
         "vocab_size": 64,
     }
-    (output_dir / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    (output_dir / "config.json").write_text(
+        json.dumps(config, indent=2) + "\n", encoding="utf-8"
+    )
     (output_dir / "generation_config.json").write_text(
         json.dumps({"eos_token_id": 63, "pad_token_id": 1}, indent=2) + "\n",
         encoding="utf-8",
@@ -92,7 +95,9 @@ def build_checkpoint(output_dir: Path) -> None:
             "pre_feedforward_layernorm",
             "post_feedforward_layernorm",
         ):
-            weights[f"{prefix}.{norm_name}.weight"] = torch.ones(32, dtype=torch.float16)
+            weights[f"{prefix}.{norm_name}.weight"] = torch.ones(
+                32, dtype=torch.float16
+            )
         weights[f"{prefix}.mlp.gate_proj.weight"] = _randn((48, 32), generator)
         weights[f"{prefix}.mlp.up_proj.weight"] = _randn((48, 32), generator)
         weights[f"{prefix}.mlp.down_proj.weight"] = _randn((32, 48), generator)

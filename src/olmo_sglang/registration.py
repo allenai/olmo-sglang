@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import os
 
-
 MODEL_ARCHITECTURE = "Olmo3MoeForCausalLM"
 MODEL_PACKAGE = "olmo_sglang.models"
 _EXTERNAL_PACKAGE_ENV = "SGLANG_EXTERNAL_MODEL_PACKAGE"
@@ -35,7 +34,7 @@ def register() -> None:
             "SGLang runtime before calling olmo_sglang.register()."
         ) from error
 
-    from olmo_sglang.kda_backend import register_olmo_kda_backend
+    from olmo_sglang.kda.backend import register_olmo_kda_backend
 
     register_olmo_kda_backend()
     ModelRegistry.register(MODEL_PACKAGE, overwrite=True, strict=True)

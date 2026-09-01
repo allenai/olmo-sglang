@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Run a token-in/token-out HF versus SGLang inference smoke test."""
+"""Run a token-in/token-out HF versus SGLang inference check."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 
 from olmo_sglang import register
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -51,7 +50,9 @@ def run_hf(model_path: Path, input_ids: list[int], max_new_tokens: int) -> list[
     return output[0, len(input_ids) :].cpu().tolist()
 
 
-def run_sglang(model_path: Path, input_ids: list[int], max_new_tokens: int) -> list[int]:
+def run_sglang(
+    model_path: Path, input_ids: list[int], max_new_tokens: int
+) -> list[int]:
     """Generate greedily with the external native SGLang model."""
 
     executable_dir = str(Path(sys.executable).parent)
@@ -88,16 +89,28 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = parse_args()
     LOGGER.setLevel(logging.INFO)
-    hf_tokens = None if args.skip_hf else run_hf(args.model, args.input_ids, args.max_new_tokens)
+    hf_tokens = (
+        None
+        if args.skip_hf
+        else run_hf(args.model, args.input_ids, args.max_new_tokens)
+    )
     sglang_tokens = run_sglang(args.model, args.input_ids, args.max_new_tokens)
     LOGGER.info("input_ids=%s", args.input_ids)
     if hf_tokens is not None:
         LOGGER.info("hf_output_ids=%s", hf_tokens)
     LOGGER.info("sglang_output_ids=%s", sglang_tokens)
     if hf_tokens is not None and hf_tokens[0] != sglang_tokens[0]:
-        raise AssertionError(f"First-token mismatch: HF={hf_tokens}, SGLang={sglang_tokens}")
-    if args.require_token_parity and hf_tokens is not None and hf_tokens != sglang_tokens:
-        raise AssertionError(f"Greedy token mismatch: HF={hf_tokens}, SGLang={sglang_tokens}")
+        raise AssertionError(
+            f"First-token mismatch: HF={hf_tokens}, SGLang={sglang_tokens}"
+        )
+    if (
+        args.require_token_parity
+        and hf_tokens is not None
+        and hf_tokens != sglang_tokens
+    ):
+        raise AssertionError(
+            f"Greedy token mismatch: HF={hf_tokens}, SGLang={sglang_tokens}"
+        )
     if hf_tokens is not None and hf_tokens != sglang_tokens:
         LOGGER.info(
             "note=first token agrees; later tiny-checkpoint tokens differ because "

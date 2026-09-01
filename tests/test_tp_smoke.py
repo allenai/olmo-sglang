@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import sglang
 
-from olmo_sglang import tp_smoke
+from olmo_sglang.validation import tensor_parallel as tp_smoke
 
 
 class _FakeEngine:

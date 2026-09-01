@@ -8,7 +8,7 @@ import logging
 
 import torch
 
-from olmo_sglang.kda_backend import OlmoFLAKDAKernel
+from olmo_sglang.kda.backend import OlmoFLAKDAKernel
 
 LOGGER = logging.getLogger(__name__)
 

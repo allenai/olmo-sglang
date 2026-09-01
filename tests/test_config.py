@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+
 from olmo_sglang.config import validate_olmo3_moe_config
 
 
@@ -28,7 +29,9 @@ def test_accepts_attention_reference_config():
 
 
 def test_accepts_kda_config():
-    validate_olmo3_moe_config(_config(layer_types=["linear_attention", "full_attention"]))
+    validate_olmo3_moe_config(
+        _config(layer_types=["linear_attention", "full_attention"])
+    )
 
 
 def test_rejects_kda_config_with_missing_fields():

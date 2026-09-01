@@ -15,8 +15,8 @@ from sglang.srt.mem_cache.memory_pool import HybridLinearKVPool, HybridReqToToke
 from sglang.srt.mem_cache.radix_cache import RadixKey
 from sglang.srt.sampling.sampling_params import SamplingParams
 
-from olmo_sglang import kda_backend
-from olmo_sglang.kda_backend import (
+from olmo_sglang.kda import backend as kda_backend
+from olmo_sglang.kda.backend import (
     OlmoKDACacheParams,
     OlmoKDAStateShape,
     register_olmo_kda_backend,

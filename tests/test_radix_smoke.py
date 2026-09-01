@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from olmo_sglang.radix_smoke import (
+from olmo_sglang.validation.radix import (
     _control_result,
     _finish_reason,
     _mixed_prompts,

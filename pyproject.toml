@@ -14,11 +14,11 @@ license = "Apache-2.0"
 Repository = "https://github.com/allenai/olmo-sglang"
 
 [project.scripts]
-olmo-sglang-smoke = "olmo_sglang.infer:main"
-olmo-sglang-parity = "olmo_sglang.parity:main"
-olmo-sglang-radix-smoke = "olmo_sglang.radix_smoke:main"
-olmo-sglang-speculative-smoke = "olmo_sglang.speculative_smoke:main"
-olmo-sglang-tp-smoke = "olmo_sglang.tp_smoke:main"
+olmo-sglang-smoke = "olmo_sglang.validation.inference:main"
+olmo-sglang-parity = "olmo_sglang.validation.parity:main"
+olmo-sglang-radix-smoke = "olmo_sglang.validation.radix:main"
+olmo-sglang-speculative-smoke = "olmo_sglang.validation.speculative:main"
+olmo-sglang-tp-smoke = "olmo_sglang.validation.tensor_parallel:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

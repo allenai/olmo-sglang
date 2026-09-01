@@ -17,7 +17,7 @@ import torch
 from transformers import AutoTokenizer
 
 from olmo_sglang import register
-from olmo_sglang.toy_reference import ToyReferenceForCausalLM, trace_summary
+from olmo_sglang.validation.reference import ToyReferenceForCausalLM, trace_summary
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_PROMPT = "What is the capital of France?"

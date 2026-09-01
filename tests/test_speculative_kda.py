@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from olmo_sglang.kda_backend import OlmoPackedKDAKernel
+from olmo_sglang.kda.backend import OlmoPackedKDAKernel
 
 
 def _verify(

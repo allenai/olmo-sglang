@@ -2,11 +2,8 @@
 
 """Inference-only Olmo3MoE implementation for SGLang.
 
-This module is loaded through ``SGLANG_EXTERNAL_MODEL_PACKAGE=olmo_sglang.models``.
-It deliberately starts with the full/sliding-attention Olmo3MoE reference
-architecture. The production KDA variant shares the surrounding model, peri-LN,
-latent-MoE, and weight-loading contracts implemented here, but its recurrent
-attention layer remains a separate follow-up.
+This module is loaded through ``SGLANG_EXTERNAL_MODEL_PACKAGE=olmo_sglang.models``
+and supports full, sliding-window, and OLMo KDA attention layers.
 """
 
 from __future__ import annotations
@@ -42,7 +39,7 @@ from transformers import PretrainedConfig
 
 from olmo_sglang.activations import native_silu_and_mul
 from olmo_sglang.config import validate_olmo3_moe_config
-from olmo_sglang.kda_layer import Olmo3MoeKDAAttention
+from olmo_sglang.kda.layer import Olmo3MoeKDAAttention
 from olmo_sglang.routing import fp32_router_logits, olmo3_moe_topk
 
 
