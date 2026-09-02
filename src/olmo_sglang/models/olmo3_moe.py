@@ -8,6 +8,8 @@ and supports full, sliding-window, and OLMo KDA attention layers.
 
 from __future__ import annotations
 
+import logging
+import os
 from collections.abc import Iterable
 from functools import partial
 
@@ -41,6 +43,88 @@ from olmo_sglang.activations import native_silu_and_mul
 from olmo_sglang.config import validate_olmo3_moe_config
 from olmo_sglang.kda.layer import Olmo3MoeKDAAttention
 from olmo_sglang.routing import fp32_router_logits, olmo3_moe_topk
+
+
+logger = logging.getLogger(__name__)
+
+
+def _local_expert_range(
+    num_experts: int,
+    ep_size: int,
+    ep_rank: int,
+) -> tuple[int, int]:
+    if num_experts % ep_size:
+        raise ValueError("n_routed_experts must be divisible by inference EP size")
+    experts_per_rank = num_experts // ep_size
+    start = ep_rank * experts_per_rank
+    return start, start + experts_per_rank
+
+
+def _first_sparse_layer_id(config: PretrainedConfig) -> int:
+    dense_layer_ids = set(config.dense_layers_indices)
+    for layer_id in range(config.num_hidden_layers):
+        if layer_id not in dense_layer_ids:
+            return layer_id
+    raise ValueError("Olmo3Moe configuration must contain at least one sparse layer")
+
+
+def _log_ep_parallelism(
+    *,
+    emit: bool,
+    layer_id: int,
+    num_experts: int,
+) -> tuple[int, int]:
+    parallel = get_parallel()
+    local_start, local_end = _local_expert_range(
+        num_experts,
+        parallel.moe_ep_size,
+        parallel.moe_ep_rank,
+    )
+    if emit:
+        logger.info(
+            "olmo_sglang_parallelism world_rank=%d outer_tp=%d "
+            "outer_tp_rank=%d attention_tp=%d attention_tp_rank=%d "
+            "attention_dp=%d ep=%d ep_rank=%d moe_tp=%d moe_tp_rank=%d "
+            "moe_dp=%d local_experts=[%d,%d)",
+            parallel.world_rank,
+            parallel.tp_size,
+            parallel.tp_rank,
+            parallel.attn_tp_size,
+            parallel.attn_tp_rank,
+            parallel.attn_dp_size,
+            parallel.moe_ep_size,
+            parallel.moe_ep_rank,
+            parallel.moe_tp_size,
+            parallel.moe_tp_rank,
+            parallel.moe_dp_size,
+            local_start,
+            local_end,
+        )
+    return local_start, local_end
+
+
+def _log_ep_activity(
+    topk_ids: torch.Tensor,
+    *,
+    layer_id: int,
+    local_start: int,
+    local_end: int,
+) -> None:
+    local_assignments = torch.count_nonzero(
+        (topk_ids >= local_start) & (topk_ids < local_end)
+    ).item()
+    parallel = get_parallel()
+    logger.info(
+        "olmo_sglang_ep_activity world_rank=%d ep_rank=%d layer=%d "
+        "local_experts=[%d,%d) routed_assignments=%d total_assignments=%d",
+        parallel.world_rank,
+        parallel.moe_ep_rank,
+        layer_id,
+        local_start,
+        local_end,
+        local_assignments,
+        topk_ids.numel(),
+    )
 
 
 class Olmo3MoeDenseMLP(nn.Module):
@@ -144,6 +228,16 @@ class Olmo3MoeSparseMLP(nn.Module):
             layer_id=layer_id,
             prefix=add_prefix("experts", prefix),
         )
+        self.layer_id = layer_id
+        self._is_ep_diagnostic_layer = layer_id == _first_sparse_layer_id(config)
+        self.local_expert_start, self.local_expert_end = _log_ep_parallelism(
+            emit=self._is_ep_diagnostic_layer,
+            layer_id=layer_id,
+            num_experts=self.num_experts,
+        )
+        self._ep_activity_pending = self._is_ep_diagnostic_layer and os.environ.get(
+            "OLMO_SGLANG_EP_DIAGNOSTICS", "0"
+        ) in {"1", "true", "True"}
 
         shared_size = getattr(config, "shared_expert_intermediate_size", None)
         self.shared_expert = (
@@ -171,6 +265,14 @@ class Olmo3MoeSparseMLP(nn.Module):
 
         topk_output = self.topk(expert_inputs, router_logits)
         routed_output = self.experts(expert_inputs, topk_output)
+        if self._ep_activity_pending:
+            _log_ep_activity(
+                topk_output.topk_ids,
+                layer_id=self.layer_id,
+                local_start=self.local_expert_start,
+                local_end=self.local_expert_end,
+            )
+            self._ep_activity_pending = False
         if self.latent_up_proj is not None:
             routed_output = self.latent_up_proj(routed_output)[0]
 
