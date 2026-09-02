@@ -60,8 +60,17 @@ def _local_expert_range(
     return start, start + experts_per_rank
 
 
+def _first_sparse_layer_id(config: PretrainedConfig) -> int:
+    dense_layer_ids = set(config.dense_layers_indices)
+    for layer_id in range(config.num_hidden_layers):
+        if layer_id not in dense_layer_ids:
+            return layer_id
+    raise ValueError("Olmo3Moe configuration must contain at least one sparse layer")
+
+
 def _log_ep_parallelism(
     *,
+    emit: bool,
     layer_id: int,
     num_experts: int,
 ) -> tuple[int, int]:
@@ -71,7 +80,7 @@ def _log_ep_parallelism(
         parallel.moe_ep_size,
         parallel.moe_ep_rank,
     )
-    if layer_id == 0:
+    if emit:
         logger.info(
             "olmo_sglang_parallelism world_rank=%d outer_tp=%d "
             "outer_tp_rank=%d attention_tp=%d attention_tp_rank=%d "
@@ -220,11 +229,13 @@ class Olmo3MoeSparseMLP(nn.Module):
             prefix=add_prefix("experts", prefix),
         )
         self.layer_id = layer_id
+        self._is_ep_diagnostic_layer = layer_id == _first_sparse_layer_id(config)
         self.local_expert_start, self.local_expert_end = _log_ep_parallelism(
+            emit=self._is_ep_diagnostic_layer,
             layer_id=layer_id,
             num_experts=self.num_experts,
         )
-        self._ep_activity_pending = layer_id == 0 and os.environ.get(
+        self._ep_activity_pending = self._is_ep_diagnostic_layer and os.environ.get(
             "OLMO_SGLANG_EP_DIAGNOSTICS", "0"
         ) in {"1", "true", "True"}
 

@@ -1,8 +1,10 @@
 import logging
+from types import SimpleNamespace
 
 import pytest
 import torch
 from olmo_sglang.models.olmo3_moe import (
+    _first_sparse_layer_id,
     _local_expert_range,
     _log_ep_activity,
     _log_ep_parallelism,
@@ -27,7 +29,7 @@ def test_parallelism_log_reports_resolved_ep_topology(caplog) -> None:
         ),
         caplog.at_level(logging.INFO),
     ):
-        local_range = _log_ep_parallelism(layer_id=0, num_experts=8)
+        local_range = _log_ep_parallelism(emit=True, layer_id=1, num_experts=8)
 
     assert local_range == (4, 8)
     assert "world_rank=1 outer_tp=2" in caplog.text
@@ -56,3 +58,16 @@ def test_ep_activity_log_counts_this_ranks_experts(caplog) -> None:
 def test_local_expert_range_requires_even_ownership() -> None:
     with pytest.raises(ValueError, match="divisible by inference EP size"):
         _local_expert_range(7, 2, 0)
+
+
+def test_first_sparse_layer_skips_dense_prefix() -> None:
+    config = SimpleNamespace(num_hidden_layers=4, dense_layers_indices=[0, 2])
+
+    assert _first_sparse_layer_id(config) == 1
+
+
+def test_first_sparse_layer_requires_sparse_layer() -> None:
+    config = SimpleNamespace(num_hidden_layers=2, dense_layers_indices=[0, 1])
+
+    with pytest.raises(ValueError, match="at least one sparse layer"):
+        _first_sparse_layer_id(config)
