@@ -33,7 +33,11 @@ feature-specific gates below before enabling them in a new topology.
 | KDA radix caching | Branch lifecycle validated locally; production refresh/load topology remains a gate |
 | Tensor parallelism | TP=1 versus TP=2 greedy parity established under the tested constraints |
 | Speculative decoding | Correctness path implemented; trained-checkpoint performance is unscreened |
-| MILES policy refresh | Idle local lifecycle validated; changed-weight rollout-wide attribution remains open |
+| MILES policy refresh | Changed-weight async/replay exercised on EP2 and EP8 with eager, cache-disabled serving; other combinations retain the gates below. See [integration limits](compatibility.md#olmo-miles-qualification-limits). |
+
+Current OLMo-MILES experiments and their precision, determinism, replay and
+recovery limits are recorded in [compatibility](compatibility.md#olmo-miles-qualification-limits).
+Standalone feature implementation does not imply that every RL combination is qualified.
 
 ## Required production correctness gates
 
