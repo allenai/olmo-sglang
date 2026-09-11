@@ -33,6 +33,7 @@ def main():
     parser.add_argument("--reference-report", type=Path)
     parser.add_argument("--logprob-atol", type=float, default=0.1)
     parser.add_argument("--save-activations", type=Path)
+    parser.add_argument("--hf-attention", choices=("eager", "sdpa"), default="eager")
     args = parser.parse_args()
     if args.logprob_atol <= 0:
         parser.error("Log-probability threshold must be positive")
@@ -55,7 +56,7 @@ def main():
         args.model,
         trust_remote_code=True,
         dtype=torch.bfloat16,
-        attn_implementation="eager",
+        attn_implementation=args.hf_attention,
         output_loading_info=True,
     )
     if load_info["missing_keys"] or load_info["unexpected_keys"]:
@@ -140,13 +141,15 @@ def main():
         "diagnosis_only": True,
         "model": str(args.model),
         "dtype": "bfloat16",
-        "attention": {"hf": "eager", "core": "torch_sdpa"},
-        "kda": "shared_explicit_hf_recurrent_helper"
-        if args.recurrent_hf_prefill
-        else "native_chunk",
-        "core_experts": "torch_grouped_mm"
-        if experts.use_torch_grouped_mm()
-        else "grouped_gemm",
+        "attention": {"hf": args.hf_attention, "core": "torch_sdpa"},
+        "kda": (
+            "shared_explicit_hf_recurrent_helper"
+            if args.recurrent_hf_prefill
+            else "native_chunk"
+        ),
+        "core_experts": (
+            "torch_grouped_mm" if experts.use_torch_grouped_mm() else "grouped_gemm"
+        ),
         "environment": {
             name: os.getenv(name)
             for name in (
@@ -162,11 +165,11 @@ def main():
             name: hashlib.sha256((args.model / name).read_bytes()).hexdigest()
             for name in ("configuration_olmo3moe.py", "modeling_olmo3moe.py")
         },
-        "reference_report_sha256": hashlib.sha256(
-            args.reference_report.read_bytes()
-        ).hexdigest()
-        if previous
-        else None,
+        "reference_report_sha256": (
+            hashlib.sha256(args.reference_report.read_bytes()).hexdigest()
+            if previous
+            else None
+        ),
         "logprob_atol": args.logprob_atol,
         "results": results,
         "limitations": (
