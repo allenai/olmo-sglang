@@ -40,18 +40,21 @@ from torch import nn
 from transformers import PretrainedConfig
 
 from olmo_sglang.activations import native_silu_and_mul
+from olmo_sglang.attention import (
+    PerHeadRMSNorm,
+    check_head_weights_loaded,
+    load_head_weight,
+    scale_attention_queries,
+)
 from olmo_sglang.config import validate_olmo3_moe_config
 from olmo_sglang.kda.layer import Olmo3MoeKDAAttention
 from olmo_sglang.routing import fp32_router_logits, olmo3_moe_topk
-
 
 logger = logging.getLogger(__name__)
 
 
 def _local_expert_range(
-    num_experts: int,
-    ep_size: int,
-    ep_rank: int,
+    num_experts: int, ep_size: int, ep_rank: int
 ) -> tuple[int, int]:
     if num_experts % ep_size:
         raise ValueError("n_routed_experts must be divisible by inference EP size")
@@ -69,16 +72,11 @@ def _first_sparse_layer_id(config: PretrainedConfig) -> int:
 
 
 def _log_ep_parallelism(
-    *,
-    emit: bool,
-    layer_id: int,
-    num_experts: int,
+    *, emit: bool, layer_id: int, num_experts: int
 ) -> tuple[int, int]:
     parallel = get_parallel()
     local_start, local_end = _local_expert_range(
-        num_experts,
-        parallel.moe_ep_size,
-        parallel.moe_ep_rank,
+        num_experts, parallel.moe_ep_size, parallel.moe_ep_rank
     )
     if emit:
         logger.info(
@@ -104,11 +102,7 @@ def _log_ep_parallelism(
 
 
 def _log_ep_activity(
-    topk_ids: torch.Tensor,
-    *,
-    layer_id: int,
-    local_start: int,
-    local_end: int,
+    topk_ids: torch.Tensor, *, layer_id: int, local_start: int, local_end: int
 ) -> None:
     local_assignments = torch.count_nonzero(
         (topk_ids >= local_start) & (topk_ids < local_end)
@@ -335,8 +329,39 @@ class Olmo3MoeAttention(nn.Module):
             tp_size=attn_tp_size,
             prefix=add_prefix("qkv_proj", prefix),
         )
-        self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
-        self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
+        self.per_head_gains = getattr(config, "qk_norm_per_head_gains", False)
+        self.scalable_softmax = getattr(config, "scalable_softmax", False)
+        self._hero_weights_checked = False
+        if self.per_head_gains:
+            self.q_norm = PerHeadRMSNorm(
+                self.num_heads, self.head_dim, config.rms_norm_eps
+            )
+            self.k_norm = PerHeadRMSNorm(
+                self.num_kv_heads, self.head_dim, config.rms_norm_eps
+            )
+            for norm, heads in (
+                (self.q_norm, self.total_num_heads),
+                (self.k_norm, self.total_num_kv_heads),
+            ):
+                norm.weight.weight_loader = partial(
+                    load_head_weight,
+                    total_heads=heads,
+                    tp_size=attn_tp_size,
+                    tp_rank=parallel.attn_tp_rank,
+                )
+        else:
+            self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
+            self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
+        if self.scalable_softmax:
+            self.ssmax_scale = nn.Parameter(torch.ones(self.num_heads))
+            self.ssmax_scale.weight_loader = partial(
+                load_head_weight,
+                total_heads=self.total_num_heads,
+                tp_size=attn_tp_size,
+                tp_rank=parallel.attn_tp_rank,
+            )
+        else:
+            self.register_parameter("ssmax_scale", None)
 
         gate_type = getattr(config, "attention_gate_type", None)
         self.g_proj = (
@@ -398,13 +423,33 @@ class Olmo3MoeAttention(nn.Module):
         hidden_states: torch.Tensor,
         forward_batch: ForwardBatch,
     ) -> torch.Tensor:
+        if not self._hero_weights_checked:
+            required = {}
+            if self.per_head_gains:
+                required.update(q_norm=self.q_norm.weight, k_norm=self.k_norm.weight)
+            if self.scalable_softmax:
+                required["ssmax_scale"] = self.ssmax_scale
+            check_head_weights_loaded(required)
+            self._hero_weights_checked = True
         qkv = self.qkv_proj(hidden_states)[0]
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-        q = self.q_norm(q.reshape(-1, self.head_dim)).reshape_as(q)
-        k = self.k_norm(k.reshape(-1, self.head_dim)).reshape_as(k)
+        if self.per_head_gains:
+            q = self.q_norm(q.reshape(-1, self.num_heads, self.head_dim)).reshape_as(q)
+            k = self.k_norm(k.reshape(-1, self.num_kv_heads, self.head_dim)).reshape_as(
+                k
+            )
+        else:
+            q = self.q_norm(q.reshape(-1, self.head_dim)).reshape_as(q)
+            k = self.k_norm(k.reshape(-1, self.head_dim)).reshape_as(k)
         if self.rotary_emb is not None:
             q, k = self.rotary_emb(positions, q, k)
 
+        if self.scalable_softmax:
+            q = scale_attention_queries(
+                q.reshape(-1, self.num_heads, self.head_dim),
+                positions,
+                self.ssmax_scale,
+            ).reshape_as(q)
         attention_output = self.attn(q, k, v, forward_batch)
         if self.g_proj is not None:
             gate = self.g_proj(hidden_states)[0]
@@ -520,10 +565,7 @@ class Olmo3MoeModel(nn.Module):
         self.layers = make_layers(
             config.num_hidden_layers,
             lambda idx, prefix: Olmo3MoeDecoderLayer(
-                config,
-                layer_id=idx,
-                quant_config=quant_config,
-                prefix=prefix,
+                config, layer_id=idx, quant_config=quant_config, prefix=prefix
             ),
             prefix=add_prefix("layers", prefix),
         )

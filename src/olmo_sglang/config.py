@@ -18,6 +18,11 @@ def validate_olmo3_moe_config(config: Any) -> None:
     execution additionally requires flash-linear-attention 0.5.2 at runtime.
     """
 
+    if getattr(config, "qk_norm_per_head_gains", False) and not getattr(
+        config, "use_head_qk_norm", False
+    ):
+        raise ValueError("qk_norm_per_head_gains requires use_head_qk_norm=True")
+
     layer_types = tuple(config.layer_types)
     if len(layer_types) != config.num_hidden_layers:
         raise ValueError("layer_types must contain one entry per logical layer")
@@ -41,7 +46,8 @@ def validate_olmo3_moe_config(config: Any) -> None:
             raise ValueError(f"Olmo KDA config is missing required fields: {missing}")
         if config.linear_num_key_heads != config.linear_num_value_heads:
             raise NotImplementedError(
-                "The initial native Olmo KDA path requires matching key and value head counts"
+                "The initial native Olmo KDA path requires matching "
+                "key and value head counts"
             )
         if not 1 <= config.linear_key_head_dim <= 256:
             raise NotImplementedError(

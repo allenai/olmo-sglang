@@ -18,9 +18,15 @@ from torch import nn
 class RMSNorm(nn.Module):
     """Reference RMS normalization."""
 
-    def __init__(self, hidden_size: int, eps: float) -> None:
+    def __init__(
+        self, hidden_size: int, eps: float, *, num_heads: int | None = None
+    ) -> None:
         super().__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
+        self.weight = nn.Parameter(
+            torch.ones(
+                (num_heads, hidden_size) if num_heads is not None else (hidden_size,)
+            )
+        )
         self.eps = eps
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
@@ -97,10 +103,7 @@ class SparseMLP(nn.Module):
         normalize = self.config.normalize_expert_weights
         if normalize is not None:
             weights = weights / torch.linalg.vector_norm(
-                weights,
-                ord=normalize,
-                dim=-1,
-                keepdim=True,
+                weights, ord=normalize, dim=-1, keepdim=True
             )
         if self.config.restore_weight_scale:
             weights = weights * self.config.num_experts_per_tok
@@ -160,18 +163,10 @@ class KDAAttention(nn.Module):
         self.g_proj_1 = nn.Linear(config.hidden_size, gate_hidden, bias=False)
         self.g_proj_2 = nn.Linear(gate_hidden, value_dim, bias=True)
         self.q_conv1d = nn.Conv1d(
-            key_dim,
-            key_dim,
-            config.linear_conv_kernel_dim,
-            groups=key_dim,
-            bias=False,
+            key_dim, key_dim, config.linear_conv_kernel_dim, groups=key_dim, bias=False
         )
         self.k_conv1d = nn.Conv1d(
-            key_dim,
-            key_dim,
-            config.linear_conv_kernel_dim,
-            groups=key_dim,
-            bias=False,
+            key_dim, key_dim, config.linear_conv_kernel_dim, groups=key_dim, bias=False
         )
         self.v_conv1d = nn.Conv1d(
             value_dim,
@@ -297,8 +292,21 @@ class FullAttention(nn.Module):
         self.v_proj = nn.Linear(
             config.hidden_size, config.num_key_value_heads * head_dim, bias=False
         )
-        self.q_norm = RMSNorm(head_dim, config.rms_norm_eps)
-        self.k_norm = RMSNorm(head_dim, config.rms_norm_eps)
+        per_head = getattr(config, "qk_norm_per_head_gains", False)
+        self.q_norm = RMSNorm(
+            head_dim,
+            config.rms_norm_eps,
+            num_heads=config.num_attention_heads if per_head else None,
+        )
+        self.k_norm = RMSNorm(
+            head_dim,
+            config.rms_norm_eps,
+            num_heads=config.num_key_value_heads if per_head else None,
+        )
+        if getattr(config, "scalable_softmax", False):
+            self.ssmax_scale = nn.Parameter(torch.ones(config.num_attention_heads))
+        else:
+            self.register_parameter("ssmax_scale", None)
         self.g_proj = (
             nn.Linear(
                 config.hidden_size, config.num_attention_heads * head_dim, bias=False
@@ -331,15 +339,19 @@ class FullAttention(nn.Module):
         q = self.q_norm(q).transpose(1, 2)
         k = self.k_norm(k).transpose(1, 2)
         v = v.transpose(1, 2)
+        if self.ssmax_scale is not None:
+            positions = torch.arange(sequence_length, device=q.device)
+            combined = (positions + 1).log().to(q.dtype)[
+                None, None, :, None
+            ] * self.ssmax_scale.to(q.dtype)[None, :, None, None]
+            q = q * combined
         repeat = config.num_attention_heads // config.num_key_value_heads
         k = k.repeat_interleave(repeat, dim=1)
         v = v.repeat_interleave(repeat, dim=1)
         scores = torch.matmul(q, k.transpose(-1, -2)) * config.head_dim**-0.5
         causal_mask = torch.triu(
             torch.full(
-                (sequence_length, sequence_length),
-                float("-inf"),
-                device=inputs.device,
+                (sequence_length, sequence_length), float("-inf"), device=inputs.device
             ),
             diagonal=1,
         )
@@ -402,9 +414,7 @@ class DecoderLayer(nn.Module):
         if trace is not None:
             trace[f"{prefix}.attention_input"] = attention_inputs
         attention_output = self.self_attn(
-            attention_inputs,
-            trace=trace,
-            prefix=f"{prefix}.self_attn",
+            attention_inputs, trace=trace, prefix=f"{prefix}.self_attn"
         )
         hidden_states = residual + self.post_attention_layernorm(attention_output)
 
@@ -443,10 +453,7 @@ class ToyReferenceForCausalLM(nn.Module):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
     def forward(
-        self,
-        input_ids: torch.Tensor,
-        *,
-        return_trace: bool = False,
+        self, input_ids: torch.Tensor, *, return_trace: bool = False
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor] | None]:
         trace: dict[str, torch.Tensor] | None = {} if return_trace else None
         hidden_states = self.model.embed_tokens(input_ids) * self.config.embed_scale
@@ -455,9 +462,7 @@ class ToyReferenceForCausalLM(nn.Module):
             trace["model.embedding"] = hidden_states
         for layer_id, layer in enumerate(self.model.layers):
             hidden_states = layer(
-                hidden_states,
-                trace=trace,
-                prefix=f"model.layers.{layer_id}",
+                hidden_states, trace=trace, prefix=f"model.layers.{layer_id}"
             )
         hidden_states = self.model.norm(hidden_states)
         logits = self.lm_head(hidden_states).float()
