@@ -11,13 +11,8 @@ from importlib import import_module
 from pathlib import Path
 
 import torch
+from olmo_sglang.validation.layerwise import capture_block, compare_captures, tensor_error
 from transformers import AutoModelForCausalLM
-
-from olmo_sglang.validation.layerwise import (
-    capture_block,
-    compare_captures,
-    tensor_error,
-)
 
 
 def release():
@@ -38,19 +33,13 @@ def main():
     if args.logprob_atol <= 0:
         parser.error("Log-probability threshold must be positive")
     if args.recurrent_hf_prefill:
-        spec = importlib.util.spec_from_file_location(
-            "hero_reference_settings", args.model / "inference_settings.py"
-        )
+        spec = importlib.util.spec_from_file_location("hero_reference_settings", args.model / "inference_settings.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         module.install(recurrent=True)
-    previous = (
-        json.loads(args.reference_report.read_text()) if args.reference_report else None
-    )
+    previous = json.loads(args.reference_report.read_text()) if args.reference_report else None
     prompts = (
-        previous["prompt_ids"]
-        if previous
-        else [[5 + index % 30 for index in range(length)] for length in (16, 81)]
+        previous["prompt_ids"] if previous else [[5 + index % 30 for index in range(length)] for length in (16, 81)]
     )
     model, load_info = AutoModelForCausalLM.from_pretrained(
         args.model,
@@ -70,13 +59,8 @@ def main():
     with torch.no_grad():
         for prompt in prompts:
             with ExitStack() as stack:
-                captures = [
-                    stack.enter_context(capture_block(block, backend="hf"))
-                    for block in model.model.layers
-                ]
-                logits = model(
-                    torch.tensor([prompt], device="cuda"), use_cache=False
-                ).logits
+                captures = [stack.enter_context(capture_block(block, backend="hf")) for block in model.model.layers]
+                logits = model(torch.tensor([prompt], device="cuda"), use_cache=False).logits
                 hf_logits.append(logits[0, -1].detach().cpu())
                 hf_runs.append(captures)
     del model, logits
@@ -94,11 +78,7 @@ def main():
     )
     model = model_config.build(init_device="meta")
     longest = max(map(len, prompts))
-    model.init_weights(
-        max_seq_len=longest,
-        max_local_microbatch_size=longest,
-        device=torch.device("cuda"),
-    )
+    model.init_weights(max_seq_len=longest, max_local_microbatch_size=longest, device=torch.device("cuda"))
     factory.load_olmo3_moe_hf_state(model, config, state)
     del state
     model.eval()
@@ -107,8 +87,7 @@ def main():
         for prompt_index, prompt in enumerate(prompts):
             with ExitStack() as stack:
                 captures = [
-                    stack.enter_context(capture_block(block, backend="core"))
-                    for block in model.blocks.values()
+                    stack.enter_context(capture_block(block, backend="core")) for block in model.blocks.values()
                 ]
                 logits = model(torch.tensor([prompt], device="cuda"))[0, -1].cpu()
             layers = []
@@ -125,9 +104,7 @@ def main():
                     }
                 )
             reference_logits = hf_logits[prompt_index].float()
-            lp = tensor_error(
-                logits.float().log_softmax(-1), reference_logits.log_softmax(-1)
-            )
+            lp = tensor_error(logits.float().log_softmax(-1), reference_logits.log_softmax(-1))
             results.append(
                 {
                     "prompt_ids": prompt,
@@ -142,33 +119,19 @@ def main():
         "model": str(args.model),
         "dtype": "bfloat16",
         "attention": {"hf": args.hf_attention, "core": "torch_sdpa"},
-        "kda": (
-            "shared_explicit_hf_recurrent_helper"
-            if args.recurrent_hf_prefill
-            else "native_chunk"
-        ),
-        "core_experts": (
-            "torch_grouped_mm" if experts.use_torch_grouped_mm() else "grouped_gemm"
-        ),
+        "kda": ("shared_explicit_hf_recurrent_helper" if args.recurrent_hf_prefill else "native_chunk"),
+        "core_experts": ("torch_grouped_mm" if experts.use_torch_grouped_mm() else "grouped_gemm"),
         "environment": {
             name: os.getenv(name)
-            for name in (
-                "OLMO_USE_TORCH_GROUPED_MM",
-                "OLMO_HF_MOE_REFERENCE_LOOP",
-                "OLMO_HF_MOE_CORE_REFERENCE",
-            )
+            for name in ("OLMO_USE_TORCH_GROUPED_MM", "OLMO_HF_MOE_REFERENCE_LOOP", "OLMO_HF_MOE_CORE_REFERENCE")
         },
-        "core_factory_sha256": hashlib.sha256(
-            Path(factory.__file__).read_bytes()
-        ).hexdigest(),
+        "core_factory_sha256": hashlib.sha256(Path(factory.__file__).read_bytes()).hexdigest(),
         "hf_source_sha256": {
             name: hashlib.sha256((args.model / name).read_bytes()).hexdigest()
             for name in ("configuration_olmo3moe.py", "modeling_olmo3moe.py")
         },
         "reference_report_sha256": (
-            hashlib.sha256(args.reference_report.read_bytes()).hexdigest()
-            if previous
-            else None
+            hashlib.sha256(args.reference_report.read_bytes()).hexdigest() if previous else None
         ),
         "logprob_atol": args.logprob_atol,
         "results": results,
@@ -181,18 +144,10 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     if args.save_activations:
-        torch.save(
-            {"prompts": prompts, "hf": hf_runs, "hf_logits": hf_logits},
-            args.save_activations,
-        )
+        torch.save({"prompts": prompts, "hf": hf_runs, "hf_logits": hf_logits}, args.save_activations)
     print(
         json.dumps(
-            {
-                "output": str(args.output),
-                "max_logprob_error": max(
-                    r["last_logprobs"]["max_abs"] for r in results
-                ),
-            }
+            {"output": str(args.output), "max_logprob_error": max(r["last_logprobs"]["max_abs"] for r in results)}
         )
     )
 
