@@ -87,3 +87,34 @@ Measured evidence is retained in
 [`measurements/hero-tiny-serving-20260910.json`](measurements/hero-tiny-serving-20260910.json).
 The final regression suite passed all 83 tests in the pinned CUDA runtime;
 Ruff import/error checks and formatting checks passed.
+
+## Optional native Core comparison
+
+Add `--core-reference` with the intended hero `olmo_core` package on `PYTHONPATH`
+to compare the native Core factory and strict HF weight import against the same
+HF reference. `--core-logprob-atol` separately controls its maximum absolute
+logprob error (default 0.05). Each record includes the exact prompt plus forced
+HF prefix IDs and their hash, HF/Core next-token IDs, and maximum/mean absolute
+error over the entire vocabulary. No Core-generated prefix is substituted for
+the HF prefix. The overall check fails if this additional gate fails; optional
+`--require-token-parity` also applies to Core.
+
+This gate explicitly uses native Core BF16 evaluation, torch SDPA, native no-EP
+experts, and no optimizer. It records the actual grouped-matmul selection. When
+`--recurrent-hf-prefill` is enabled, the existing HF helper selects recurrent FLA
+for both HF and Core; this is recorded as a semantic reference substitution.
+Without that flag, Core keeps FLA chunk prefill. This gate does not qualify the
+optimized training configuration, expert parallelism, FlashAttention, gradients,
+or router-loss semantics.
+
+The hero tiny profile uses expert intermediate width 32 so it meets Core
+`torch.grouped_mm` alignment constraints; the earlier serving-only measurement
+at commit `b1a7743` used width 20. Production hero's width 1024 is unaffected.
+
+The aligned tiny-model check passed: native Core's maximum full-vocabulary
+logprob error was **0.03333211**, mean **0.00357860**, and all eight next-token
+predictions matched HF. SGLang also matched all eight tokens in both execution
+modes; its maximum checked logprob error was **0.04114890**. Both independent
+maximum-error gates were 0.05. Exact input IDs, forced-prefix hashes, per-case
+errors, and backend/source evidence are retained in
+[`measurements/hero-tiny-core-reference-20260910.json`](measurements/hero-tiny-core-reference-20260910.json).

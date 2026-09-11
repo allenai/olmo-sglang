@@ -116,6 +116,7 @@ def _config(
             qk_norm_per_head_gains=True,
             scalable_softmax=True,
             head_dim=16,
+            moe_intermediate_size=32,
             num_attention_heads=2,
             num_key_value_heads=1,
         )
