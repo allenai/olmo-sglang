@@ -13,6 +13,7 @@ from transformers import AutoModelForCausalLM
 
 from olmo_sglang import register
 from olmo_sglang.validation.core_reference import evaluate_core_reference
+from olmo_sglang.validation.serving_diagnosis import compare_modes
 
 
 def main():
@@ -39,6 +40,11 @@ def main():
     )
     parser.add_argument("--core-logprob-atol", type=float, default=0.05)
     parser.add_argument(
+        "--diagnostic-mode-matrix",
+        action="store_true",
+        help="Cross graphs off/on with chunks 128/32 and retain top-token values",
+    )
+    parser.add_argument(
         "--check-live-update",
         action="store_true",
         help="For --tiny-dir: compare live updates with a fresh changed checkpoint",
@@ -60,6 +66,8 @@ def main():
         parser.error(
             "--check-live-update requires --tiny-dir to bound checkpoint copying"
         )
+    if args.diagnostic_mode_matrix and args.check_live_update:
+        parser.error("Use separate runs for mode diagnosis and live weight updates")
     ROOT = args.model or args.tiny_dir
     HF = args.hf_source or ROOT
     if args.tiny_dir is not None:
@@ -177,7 +185,11 @@ def main():
                 continue
             update_tensors.append((name, weights[name]))
         save_file(weights, str(changed_root / "model.safetensors"))
-    modes = [(False, 128, ROOT), (True, 32, ROOT)]
+    modes = (
+        [(graphs, chunk, ROOT) for graphs in (False, True) for chunk in (128, 32)]
+        if args.diagnostic_mode_matrix
+        else [(False, 128, ROOT), (True, 32, ROOT)]
+    )
     if changed_root is not None:
         modes.append((True, 32, changed_root))
     for graphs, chunk, serving_root in modes:
@@ -263,9 +275,21 @@ def main():
                         abs(value - ref["logprobs"][step][token])
                         for token, value in actual.items()
                     )
-                    samples.append(
-                        {"token": out["output_ids"][0], "max_logprob_error": max_error}
-                    )
+                    record = {
+                        "token": out["output_ids"][0],
+                        "max_logprob_error": max_error,
+                    }
+                    if args.diagnostic_mode_matrix:
+                        record["input_ids"] = prompt + ref["tokens"][:step]
+                        record["checked_top_logprobs"] = [
+                            {
+                                "token": token,
+                                "sglang": value,
+                                "hf": ref["logprobs"][step][token],
+                            }
+                            for token, value in actual.items()
+                        ]
+                    samples.append(record)
                 forced.append(samples)
             report["modes"].append(
                 {"graphs": graphs, "chunk": chunk, "outputs": outputs, "forced": forced}
@@ -299,7 +323,7 @@ def main():
                 graphs,
                 chunk,
                 [(o["output_ids"], r["tokens"]) for o, r in zip(outputs, references)],
-                forced,
+                [[step["max_logprob_error"] for step in prompt] for prompt in forced],
                 flush=True,
             )
         finally:
@@ -324,9 +348,13 @@ def main():
         for mode in report["modes"]
         for output, reference in zip(mode["outputs"], references)
     )
-    mode_parity = [out["output_ids"] for out in report["modes"][0]["outputs"]] == [
-        out["output_ids"] for out in report["modes"][1]["outputs"]
-    ]
+    mode_parity = all(
+        [out["output_ids"] for out in mode["outputs"]]
+        == [out["output_ids"] for out in report["modes"][0]["outputs"]]
+        for mode in report["modes"]
+    )
+    if args.diagnostic_mode_matrix:
+        report["mode_differences"] = compare_modes(report["modes"])
     report.update(
         max_logprob_error=max(errors),
         token_parity=token_parity,

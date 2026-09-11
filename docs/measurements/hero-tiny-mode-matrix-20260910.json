@@ -1,0 +1,360 @@
+{
+  "model_path": "/tmp/hero-core-reference-aligned",
+  "hf_source_sha256": {
+    "configuration_olmo3moe.py": "49ed9aca7406dd62cc43f317ce81e13eaa26d94adb310f1af88c6e10dd2fd7ba",
+    "modeling_olmo3moe.py": "81c4427030be8a6e982d131ed7615d44c4f2747df6bc4c537cd2b9430703913a"
+  },
+  "logprob_atol": 0.05,
+  "max_logprob_error": 0.026047706604003906,
+  "max_cached_decode_logprob_error": 0.015728473663330078,
+  "token_parity": true,
+  "prefill_decode_graph_token_parity": true,
+  "passed": true,
+  "mode_differences": [
+    {
+      "variable": "chunk",
+      "first": {
+        "graphs": false,
+        "chunk": 128
+      },
+      "second": {
+        "graphs": false,
+        "chunk": 32
+      },
+      "records": [
+        {
+          "prompt_index": 0,
+          "step": 0,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 1,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 2,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 3,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 1,
+          "step": 0,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.003825664520263672
+        },
+        {
+          "prompt_index": 1,
+          "step": 1,
+          "compared_tokens": 19,
+          "first_only_tokens": [
+            36
+          ],
+          "second_only_tokens": [
+            29
+          ],
+          "max_abs_common_token_logprob_difference": 0.003037691116333008
+        },
+        {
+          "prompt_index": 1,
+          "step": 2,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0055654048919677734
+        },
+        {
+          "prompt_index": 1,
+          "step": 3,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0055615901947021484
+        }
+      ],
+      "interpretation": "Intersection of returned top-token sets only; not full-vocabulary parity"
+    },
+    {
+      "variable": "graphs",
+      "first": {
+        "graphs": false,
+        "chunk": 128
+      },
+      "second": {
+        "graphs": true,
+        "chunk": 128
+      },
+      "records": [
+        {
+          "prompt_index": 0,
+          "step": 0,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 1,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 2,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 3,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 1,
+          "step": 0,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 1,
+          "step": 1,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 1,
+          "step": 2,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 1,
+          "step": 3,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        }
+      ],
+      "interpretation": "Intersection of returned top-token sets only; not full-vocabulary parity"
+    },
+    {
+      "variable": "graphs",
+      "first": {
+        "graphs": false,
+        "chunk": 32
+      },
+      "second": {
+        "graphs": true,
+        "chunk": 32
+      },
+      "records": [
+        {
+          "prompt_index": 0,
+          "step": 0,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 1,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 2,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 3,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 1,
+          "step": 0,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 1,
+          "step": 1,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 1,
+          "step": 2,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 1,
+          "step": 3,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        }
+      ],
+      "interpretation": "Intersection of returned top-token sets only; not full-vocabulary parity"
+    },
+    {
+      "variable": "chunk",
+      "first": {
+        "graphs": true,
+        "chunk": 128
+      },
+      "second": {
+        "graphs": true,
+        "chunk": 32
+      },
+      "records": [
+        {
+          "prompt_index": 0,
+          "step": 0,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 1,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 2,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 0,
+          "step": 3,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0
+        },
+        {
+          "prompt_index": 1,
+          "step": 0,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.003825664520263672
+        },
+        {
+          "prompt_index": 1,
+          "step": 1,
+          "compared_tokens": 19,
+          "first_only_tokens": [
+            36
+          ],
+          "second_only_tokens": [
+            29
+          ],
+          "max_abs_common_token_logprob_difference": 0.003037691116333008
+        },
+        {
+          "prompt_index": 1,
+          "step": 2,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0055654048919677734
+        },
+        {
+          "prompt_index": 1,
+          "step": 3,
+          "compared_tokens": 20,
+          "first_only_tokens": [],
+          "second_only_tokens": [],
+          "max_abs_common_token_logprob_difference": 0.0055615901947021484
+        }
+      ],
+      "interpretation": "Intersection of returned top-token sets only; not full-vocabulary parity"
+    }
+  ],
+  "modes": [
+    {
+      "graphs": false,
+      "chunk": 128,
+      "max_forced_logprob_error": 0.0249631404876709
+    },
+    {
+      "graphs": false,
+      "chunk": 32,
+      "max_forced_logprob_error": 0.026047706604003906
+    },
+    {
+      "graphs": true,
+      "chunk": 128,
+      "max_forced_logprob_error": 0.0249631404876709
+    },
+    {
+      "graphs": true,
+      "chunk": 32,
+      "max_forced_logprob_error": 0.026047706604003906
+    }
+  ],
+  "runtime": "olmo-miles:gate-01m24e7msdgn2qfw1t8z31bcks; local RTX4090; explicit HF recurrent prefill",
+  "reference_model": "tiny hero hybrid, expert intermediate32; same fixture as hero-tiny-core-reference-20260910.json",
+  "evidence_note": "Actual four-mode GPU run used candidate script; direct pairwise summaries computed afterward from its recorded identical prefixes/top-token values using tested helper."
+}
