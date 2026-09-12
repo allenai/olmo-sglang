@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections.abc import Iterable
 from functools import partial
+from typing import Any
 
 import torch
 from sglang.srt.layers.layernorm import RMSNorm
@@ -631,81 +633,102 @@ class Olmo3MoeForCausalLM(nn.Module):
         )
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
-        """Load HF-layout weights into SGLang fused and tensor-parallel parameters."""
+        """Load HF-layout weights into SGLang fused and tensor-parallel parameters.
 
-        stacked_params_mapping = [
-            (".qkv_proj", ".q_proj", "q"),
-            (".qkv_proj", ".k_proj", "k"),
-            (".qkv_proj", ".v_proj", "v"),
-            (".qkv_conv1d", ".q_conv1d", 0),
-            (".qkv_conv1d", ".k_conv1d", 1),
-            (".qkv_conv1d", ".v_conv1d", 2),
-            (".gate_up_proj", ".gate_proj", 0),
-            (".gate_up_proj", ".up_proj", 1),
-        ]
-        expert_params_mapping = FusedMoE.make_expert_params_mapping(
-            ckpt_gate_proj_name="gate_proj",
-            ckpt_down_proj_name="down_proj",
-            ckpt_up_proj_name="up_proj",
-            num_experts=self.config.n_routed_experts,
-        )
-
-        params = dict(self.named_parameters())
+        Name resolution is constant-time per tensor and memoized across calls.
+        Online weight updates replay every checkpoint name on each publication,
+        and a per-expert scan over ``3 * n_routed_experts`` patterns costs about
+        a second per publication at 512 experts.
+        """
+        resolver = self._weight_targets
+        if resolver is None:
+            resolver = self._weight_targets = WeightTargets(
+                dict(self.named_parameters()), self.config.n_routed_experts
+            )
         loaded_params: set[str] = set()
         for name, loaded_weight, *rest in weights:
             loader_kwargs = rest[0] if rest else {}
-            if "rotary_emb.inv_freq" in name:
+            target = resolver.resolve(name)
+            if target is None:
                 continue
+            kind, mapped_name, shard_id, expert_id = target
+            param = resolver.params[mapped_name]
+            if kind == "stacked":
+                param.weight_loader(param, loaded_weight, shard_id)
+            elif kind == "expert":
+                param.weight_loader(
+                    param,
+                    loaded_weight,
+                    mapped_name,
+                    shard_id=shard_id,
+                    expert_id=expert_id,
+                )
+            else:
+                weight_loader = getattr(param, "weight_loader", default_weight_loader)
+                weight_loader(param, loaded_weight, **loader_kwargs)
+            loaded_params.add(mapped_name)
+        return loaded_params
 
-            name = name.replace(".linear_attn.", ".self_attn.")
-            for param_name, weight_name, shard_id in stacked_params_mapping:
+    _weight_targets: "WeightTargets | None" = None
+
+
+STACKED_PARAMS_MAPPING = (
+    (".qkv_proj", ".q_proj", "q"),
+    (".qkv_proj", ".k_proj", "k"),
+    (".qkv_proj", ".v_proj", "v"),
+    (".qkv_conv1d", ".q_conv1d", 0),
+    (".qkv_conv1d", ".k_conv1d", 1),
+    (".qkv_conv1d", ".v_conv1d", 2),
+    (".gate_up_proj", ".gate_proj", 0),
+    (".gate_up_proj", ".up_proj", 1),
+)
+_EXPERT_SHARDS = {"gate_proj": "w1", "down_proj": "w2", "up_proj": "w3"}
+_EXPERT_WEIGHT = re.compile(r"\.experts\.(\d+)\.(gate_proj|up_proj|down_proj)\.")
+
+
+class WeightTargets:
+    """Resolve HF checkpoint names to SGLang parameters without scanning mappings.
+
+    ``resolve`` returns ``(kind, parameter_name, shard_id, expert_id)`` or
+    ``None`` for names that are skipped. Results are memoized per checkpoint
+    name; unknown names raise ``KeyError`` exactly as the scanning loader did.
+    """
+
+    def __init__(self, params: dict[str, torch.nn.Parameter], num_experts: int):
+        self.params = params
+        self.num_experts = num_experts
+        self._cache: dict[str, tuple[str, str, Any, int | None] | None] = {}
+
+    def resolve(self, name: str) -> tuple[str, str, Any, int | None] | None:
+        try:
+            return self._cache[name]
+        except KeyError:
+            target = self._cache[name] = self._resolve(name)
+            return target
+
+    def _resolve(self, name: str) -> tuple[str, str, Any, int | None] | None:
+        if "rotary_emb.inv_freq" in name:
+            return None
+        name = name.replace(".linear_attn.", ".self_attn.")
+        if ".mlp.experts." not in name:
+            for param_name, weight_name, shard_id in STACKED_PARAMS_MAPPING:
                 if weight_name not in name:
                     continue
-                if ".mlp.experts." in name:
-                    continue
                 mapped_name = name.replace(weight_name, param_name)
-                if mapped_name not in params:
-                    continue
-                param = params[mapped_name]
-                param.weight_loader(param, loaded_weight, shard_id)
-                loaded_params.add(mapped_name)
-                break
-            else:
-                for (
-                    param_name,
-                    weight_name,
-                    expert_id,
-                    shard_id,
-                ) in expert_params_mapping:
-                    if weight_name not in name:
-                        continue
-                    mapped_name = name.replace(weight_name, param_name)
-                    if mapped_name not in params:
-                        continue
-                    param = params[mapped_name]
-                    param.weight_loader(
-                        param,
-                        loaded_weight,
-                        mapped_name,
-                        shard_id=shard_id,
-                        expert_id=expert_id,
-                    )
-                    loaded_params.add(mapped_name)
-                    break
-                else:
-                    if name.endswith(".bias") and name not in params:
-                        continue
-                    if name not in params:
-                        raise KeyError(
-                            f"No SGLang parameter for checkpoint weight {name}"
-                        )
-                    param = params[name]
-                    weight_loader = getattr(
-                        param, "weight_loader", default_weight_loader
-                    )
-                    weight_loader(param, loaded_weight, **loader_kwargs)
-                    loaded_params.add(name)
-        return loaded_params
+                if mapped_name in self.params:
+                    return ("stacked", mapped_name, shard_id, None)
+        match = _EXPERT_WEIGHT.search(name)
+        if match is not None and int(match.group(1)) < self.num_experts:
+            expert_id, projection = int(match.group(1)), match.group(2)
+            prefix = "experts.w2_" if projection == "down_proj" else "experts.w13_"
+            mapped_name = name.replace(f"experts.{expert_id}.{projection}.", prefix)
+            if mapped_name in self.params:
+                return ("expert", mapped_name, _EXPERT_SHARDS[projection], expert_id)
+        if name in self.params:
+            return ("direct", name, None, None)
+        if name.endswith(".bias"):
+            return None
+        raise KeyError(f"No SGLang parameter for checkpoint weight {name}")
 
 
 EntryClass = Olmo3MoeForCausalLM
