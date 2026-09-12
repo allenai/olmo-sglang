@@ -165,3 +165,31 @@ def test_unknown_names_and_out_of_range_experts_raise_like_before():
             _legacy_resolve(name, params, 8)
     assert targets.resolve("model.layers.0.self_attn.rotary_emb.inv_freq") is None
     assert targets.resolve("model.layers.0.mlp.experts.w2_weight.bias") is None
+
+
+def test_stacked_expert_names_resolve_to_the_fused_loader_only_when_registered():
+    params = _synthetic_params(1, set())
+    layers = {
+        "model.layers.0.mlp.experts.w13_weight": object(),
+        "model.layers.0.mlp.experts.w2_weight": object(),
+    }
+    targets = WeightTargets(params, 8, fused_layers=layers)
+    assert targets.resolve("model.layers.0.mlp.experts.gate_up_proj.weight") == (
+        "fused",
+        "model.layers.0.mlp.experts.w13_weight",
+        "w13",
+        None,
+    )
+    assert targets.resolve("model.layers.0.mlp.experts.down_proj.weight") == (
+        "fused",
+        "model.layers.0.mlp.experts.w2_weight",
+        "w2",
+        None,
+    )
+    # Per-expert names keep resolving to per-expert loads alongside the fused ones.
+    assert (
+        targets.resolve("model.layers.0.mlp.experts.2.down_proj.weight")[0] == "expert"
+    )
+    # A stacked name is unknown when no fused layer owns the parameter.
+    with pytest.raises(KeyError):
+        WeightTargets(params, 8).resolve("model.layers.0.mlp.experts.down_proj.weight")
