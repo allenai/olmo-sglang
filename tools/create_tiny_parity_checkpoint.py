@@ -23,6 +23,7 @@ PROFILES = (
     "kda-dense",
     "hybrid-moe",
     "scaled-attention-hybrid-moe",
+    "biased-sliding-hybrid-moe",
     "production-shape",
 )
 CHAT_TEMPLATE = """{%- for message in messages -%}
@@ -49,6 +50,7 @@ def _config(
         "kda-dense": ["linear_attention"],
         "hybrid-moe": ["linear_attention", "full_attention"],
         "scaled-attention-hybrid-moe": ["linear_attention", "full_attention"],
+        "biased-sliding-hybrid-moe": ["linear_attention", "sliding_attention"],
         "production-shape": [
             "linear_attention",
             "linear_attention",
@@ -60,7 +62,12 @@ def _config(
     dense_layers = (
         list(range(len(layer_types)))
         if profile
-        not in {"hybrid-moe", "scaled-attention-hybrid-moe", "production-shape"}
+        not in {
+            "hybrid-moe",
+            "scaled-attention-hybrid-moe",
+            "biased-sliding-hybrid-moe",
+            "production-shape",
+        }
         else []
     )
     config = {
@@ -112,7 +119,7 @@ def _config(
         "use_rope": False,
         "vocab_size": len(tokenizer),
     }
-    if profile == "scaled-attention-hybrid-moe":
+    if profile in {"scaled-attention-hybrid-moe", "biased-sliding-hybrid-moe"}:
         config.update(
             qk_norm_per_head_gains=True,
             scalable_softmax=True,
@@ -121,6 +128,8 @@ def _config(
             num_attention_heads=2,
             num_key_value_heads=1,
         )
+    if profile == "biased-sliding-hybrid-moe":
+        config["attention_bias"] = True
     if profile == "production-shape":
         config.update(
             {
@@ -366,6 +375,13 @@ def _add_full_attention(
         weights[f"{prefix}.ssmax_scale"] = torch.linspace(
             0.6, 1.3, config["num_attention_heads"], dtype=torch.bfloat16
         )
+    if config["attention_bias"]:
+        for projection in ("q_proj", "k_proj", "v_proj", "o_proj", "g_proj"):
+            width = weights[f"{prefix}.{projection}.weight"].shape[0]
+            scale = 1.5 if projection == "g_proj" else 0.05
+            weights[f"{prefix}.{projection}.bias"] = torch.linspace(
+                -scale, scale, width, dtype=torch.bfloat16
+            )
 
 
 def build_checkpoint(

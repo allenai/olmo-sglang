@@ -31,6 +31,25 @@ def validate_olmo3_moe_config(config: Any) -> None:
     if unsupported:
         raise NotImplementedError(f"Unsupported Olmo layer types: {unsupported}")
 
+    if any(layer_type != "linear_attention" for layer_type in layer_types):
+        if not getattr(config, "use_head_qk_norm", False):
+            raise NotImplementedError(
+                "The native Olmo attention path requires use_head_qk_norm=True; "
+                "normalization across the full Q/K projection is not supported"
+            )
+        if getattr(config, "attention_gate_type", None) not in (None, "elementwise"):
+            raise NotImplementedError(
+                "The native Olmo attention path supports attention_gate_type=None "
+                "or 'elementwise'"
+            )
+    if "sliding_attention" in layer_types:
+        window = getattr(config, "sliding_window", None)
+        # SGLang treats a zero left window as full attention. We pass window - 1.
+        if not isinstance(window, int) or isinstance(window, bool) or window < 2:
+            raise ValueError(
+                "sliding_attention requires an integer sliding_window >= 2"
+            )
+
     if "linear_attention" in layer_types:
         required_kda_fields = (
             "linear_allow_neg_eigval",

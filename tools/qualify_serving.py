@@ -13,6 +13,7 @@ from transformers import AutoModelForCausalLM
 
 from olmo_sglang import register
 from olmo_sglang.validation.serving_diagnosis import compare_modes
+from olmo_sglang.validation.weight_updates import update_weights_in_buckets
 
 
 def main():
@@ -25,6 +26,12 @@ def main():
     )
     source.add_argument(
         "--tiny-dir", type=Path, help="Create a NEW tiny scaled-attention fixture here"
+    )
+    parser.add_argument(
+        "--tiny-profile",
+        choices=("scaled-attention-hybrid-moe", "biased-sliding-hybrid-moe"),
+        default="scaled-attention-hybrid-moe",
+        help="Fixture profile when creating --tiny-dir",
     )
     parser.add_argument(
         "--hf-source",
@@ -70,7 +77,7 @@ def main():
         generator = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(generator)
         generator.build_checkpoint(
-            ROOT, profile="scaled-attention-hybrid-moe", max_position_embeddings=256
+            ROOT, profile=args.tiny_profile, max_position_embeddings=256
         )
         for name in (
             "configuration_olmo3moe.py",
@@ -270,17 +277,9 @@ def main():
             )
             if args.check_live_update and graphs:
                 before_update_outputs = outputs
-                responses = [engine.begin_weight_update()]
-                try:
-                    for index, tensor in enumerate(update_tensors):
-                        responses.append(
-                            engine.update_weights_from_tensor(
-                                [tensor], flush_cache=index == len(update_tensors) - 1
-                            )
-                        )
-                finally:
-                    responses.append(engine.end_weight_update())
-                report["update_responses"] = responses
+                report["update_responses"] = update_weights_in_buckets(
+                    engine, update_tensors
+                )
                 updated_outputs = engine.generate(
                     input_ids=prompts,
                     sampling_params={

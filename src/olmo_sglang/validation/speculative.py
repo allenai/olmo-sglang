@@ -24,7 +24,7 @@ def _create_engine(
     ngram_breadth: int = 1,
     cuda_graph_backend_decode: str = "disabled",
 ) -> Any:
-    """Create one eager embedded engine for the matched greedy A/B."""
+    """Create one embedded engine with matched, tiny-fixture-compatible backends."""
 
     import sglang as sgl
 
@@ -41,6 +41,8 @@ def _create_engine(
         trust_remote_code=True,
         skip_tokenizer_init=True,
         dtype="auto",
+        attention_backend="triton",
+        sampling_backend="pytorch",
         cuda_graph_backend_decode=cuda_graph_backend_decode,
         cuda_graph_max_bs_decode=2,
         cuda_graph_backend_prefill="disabled",

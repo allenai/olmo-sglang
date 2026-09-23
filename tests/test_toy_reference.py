@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
 from transformers import AutoTokenizer
 
-from olmo_sglang.validation.reference import ToyReferenceForCausalLM, trace_summary
+from olmo_sglang.validation.reference import (
+    FullAttention,
+    ToyReferenceForCausalLM,
+    trace_summary,
+)
 
 GENERATOR_PATH = (
     Path(__file__).parents[1] / "tools" / "create_tiny_parity_checkpoint.py"
@@ -34,6 +39,7 @@ def _generator_module():
         ("kda-dense", 1, False),
         ("hybrid-moe", 2, True),
         ("scaled-attention-hybrid-moe", 2, True),
+        ("biased-sliding-hybrid-moe", 2, True),
     ),
 )
 def test_toy_reference_strictly_loads_each_profile(
@@ -82,6 +88,22 @@ def test_toy_chat_template_and_token_ids_are_stable(tmp_path: Path) -> None:
     assert input_ids[0] == tokenizer.convert_tokens_to_ids("<|im_start|>")
     assert input_ids[-2] == tokenizer.convert_tokens_to_ids("<|im_start|>")
     assert input_ids[-1] == tokenizer.convert_tokens_to_ids("assistant")
+
+
+def test_sliding_reference_excludes_tokens_outside_the_window(tmp_path: Path) -> None:
+    generator = _generator_module()
+    tokenizer = generator._build_tokenizer(tmp_path)
+    config = generator._config("attention-dense", tokenizer)
+    config.update(layer_types=["sliding_attention"], attention_bias=True)
+    torch.manual_seed(13)
+    model = FullAttention(SimpleNamespace(**config))
+    inputs = torch.randn(1, 16, config["hidden_size"])
+    changed = inputs.clone()
+    changed[:, :8] += 10
+    expected = model(inputs, prefix="attention")
+    actual = model(changed, prefix="attention")
+    torch.testing.assert_close(actual[:, -1], expected[:, -1], atol=0, rtol=0)
+    assert not torch.equal(actual[:, 0], expected[:, 0])
 
 
 def test_production_shape_profile_preserves_critical_dimensions(tmp_path: Path) -> None:

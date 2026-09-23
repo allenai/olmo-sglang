@@ -7,16 +7,20 @@ compatible SGLang installation.
 
 ## Integration baseline
 
-The current OLMo-MILES runtime baseline was recorded on 2026-08-29:
+The pinned runtime uses the SGLang source revision recorded in `pyproject.toml`:
 
 | Component | Tested version or revision |
 |---|---|
-| SGLang | `0.5.19.dev48+g3bbb281` / `3bbb2812e2ca1defdee76f6ec09dbb2456c21c69` |
+| SGLang | `0.5.19.dev49+g3145136` / `3145136dcd1238754e0ea2b2ffd546532119c71c` |
 | flash-linear-attention | `0.5.2` |
 | PyTorch | `2.13.0+cu130` |
 | Transformers | `5.12.1` |
 | Triton | `3.7.1` |
 | Python | `3.12` |
+
+The source revision adds a bounded HTTP-readiness wait before optional GC
+freezing to the audited `sglang-miles` base
+`3bbb2812e2ca1defdee76f6ec09dbb2456c21c69`. It does not change model kernels.
 
 This table is a known-good integration point, not a claim that adjacent SGLang
 commits are incompatible. Run the validation suite whenever changing the
@@ -32,6 +36,13 @@ layer. Supported entries are:
 - `full_attention`;
 - `sliding_attention`;
 - `linear_attention` for OLMo KDA.
+
+Full and sliding attention require `use_head_qk_norm=true`. Shared gains and
+`qk_norm_per_head_gains=true` are supported; normalization across the entire Q/K
+projection is not. Attention output gates can be absent or `elementwise`, with
+projection biases following `attention_bias`. Headwise output gates are not
+supported. Sliding attention requires an integer `sliding_window >= 2`.
+Unsupported normalization and gate settings are rejected during model setup.
 
 KDA configurations must provide the `linear_*` head, width, convolution, norm,
 and negative-eigenvalue fields validated in `olmo_sglang.config`. KDA key and

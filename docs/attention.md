@@ -51,6 +51,12 @@ checkpoint, updates Q gains, K gains, and scales in separate buckets, then
 compares captured-graph inference against a fresh engine loading that checkpoint.
 Omit that flag for an existing model.
 
+Add `--tiny-profile biased-sliding-hybrid-moe` to create the variant with an
+eight-token sliding window and nonzero attention projection biases, including
+the output gate. It exercises the window metadata used by cached decode as well
+as the causal prefill mask. The tiny fixtures are also supported by the independent
+CPU reference. Every live-update begin, bucket, and end response must succeed.
+
 The check uses prompt lengths 16 and 81, four generated tokens each, forced HF
 prefixes, unchunked prefill, 32-token chunked prefill, and decode graphs for batch
 sizes 1/2/4. It checks top-token and cached-decode log probabilities against the
@@ -79,7 +85,10 @@ The command above retains those settings; the fixture and tool names have since
 been updated. Save new reports with run artifacts as described in
 [development](development.md).
 
+The [September 23 audit](validation.md#september-23-2026-validation-audit) repeats
+these checks and adds biased sliding attention, including live updates.
+
 These are tiny BF16, TP1 checks. Full-checkpoint probability parity, TP greater
-than one, speculative decoding with these features, and distributed publication
-remain separate gates. See [numerical findings](numerical-findings.md) for the
+than one, trained-draft performance, and distributed publication remain separate
+gates. See [numerical findings](numerical-findings.md) for the
 recorded full-checkpoint failure and arithmetic differences.

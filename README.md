@@ -5,26 +5,22 @@
 checkout. It can be used directly for inference or as the rollout runtime in
 [`olmo-miles`](https://github.com/allenai/olmo-miles).
 
-> [!IMPORTANT]
-> This package is an OLMo extension for an existing, compatible SGLang runtime;
-> it is not a standalone inference framework. The implementation is usable for
-> experimentation, but several production correctness and performance gates
-> remain open. See [status](docs/status.md) and
-> [compatibility](docs/compatibility.md).
-
-The frozen compatibility target is the official SGLang `sglang-miles` commit
-`3bbb2812e2ca1defdee76f6ec09dbb2456c21c69`; this package does not require an
-SGLang fork. See [compatibility](docs/compatibility.md) for the complete runtime
-contract.
+Install the extension into the [tested SGLang runtime](docs/compatibility.md).
+The pinned source revision is `3145136dcd1238754e0ea2b2ffd546532119c71c`.
+See [validation status](docs/status.md) for measured coverage and known numerical
+limits, including the outstanding full-checkpoint probability comparison.
 
 ## Supported model features
 
 - Full and sliding-window attention.
-- OLMo KDA prefill and cached decode through FLA 0.5.2.
+- OLMo KDA prefill through FLA 0.5.2 and packed Triton cached decode.
+- Headwise Q/K normalization, per-head gains, scalable softmax, and elementwise
+  attention output gates.
 - Dense SwiGLU and routed MoE layers, including latent and shared experts.
 - HF-layout checkpoint loading into SGLang's fused tensors.
 - Tensor-parallel KDA execution with documented head-count constraints.
-- Experimental branch-capable KDA radix caching and speculative verification.
+- Branch-capable KDA radix caching and opt-in speculative verification, with
+  [feature-specific validation](docs/status.md).
 
 FLA is optional for attention-only checkpoints. KDA serving is GPU-oriented.
 
@@ -54,6 +50,8 @@ SGLANG_EXTERNAL_MODEL_PACKAGE=olmo_sglang.models \
   .venv/bin/sglang serve \
   --model-path /path/to/olmo-hf-checkpoint \
   --trust-remote-code \
+  --attention-backend triton \
+  --sampling-backend pytorch \
   --tp-size 1
 ```
 
@@ -85,7 +83,7 @@ and embedded-engine examples.
 | [Compatibility](docs/compatibility.md) | Tested runtime, checkpoint contract, requirements, and constraints |
 | [Design](docs/design.md) | Package boundaries, model integration, KDA state, radix caching, and speculation |
 | [Validation](docs/validation.md) | Tiny fixtures, parity tools, smoke tests, and developer checks |
-| [Status](docs/status.md) | Current capabilities, remaining gates, and production caveats |
+| [Status](docs/status.md) | Validation evidence, known numerical limits, and remaining work |
 | [Development](docs/development.md) | Repository layout, test commands, and contribution guidance |
 
 ## Development check

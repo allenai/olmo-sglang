@@ -44,6 +44,8 @@ import sglang as sgl
 engine = sgl.Engine(
     model_path="/path/to/olmo-hf-checkpoint",
     trust_remote_code=True,
+    attention_backend="triton",
+    sampling_backend="pytorch",
     tp_size=1,
 )
 try:
@@ -81,6 +83,8 @@ SGLANG_EXTERNAL_MODEL_PACKAGE=olmo_sglang.models \
   .venv/bin/sglang serve \
   --model-path /path/to/olmo-hf-checkpoint \
   --trust-remote-code \
+  --attention-backend triton \
+  --sampling-backend pytorch \
   --tp-size 1 \
   --host 127.0.0.1 \
   --port 30000

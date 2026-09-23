@@ -1,8 +1,31 @@
+import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
 from olmo_sglang.validation import speculative as speculative_smoke
+
+
+@pytest.mark.parametrize("speculative", [False, True])
+def test_engine_uses_matched_backends_that_support_tiny_attention_heads(
+    monkeypatch, speculative
+):
+    captured = {}
+    sglang = ModuleType("sglang")
+    sglang.Engine = lambda **kwargs: captured.update(kwargs)
+    monkeypatch.setitem(sys.modules, "sglang", sglang)
+    speculative_smoke._create_engine(
+        Path("model"),
+        context_length=256,
+        speculative=speculative,
+        mem_fraction_static=0.25,
+        cuda_graph_backend_decode="full",
+    )
+    assert captured["attention_backend"] == "triton"
+    assert captured["sampling_backend"] == "pytorch"
+    assert captured["cuda_graph_backend_decode"] == "full"
+    assert captured.get("speculative_algorithm") == ("NGRAM" if speculative else None)
 
 
 class _FakeEngine:

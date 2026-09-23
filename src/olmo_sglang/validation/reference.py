@@ -277,20 +277,31 @@ class KDAAttention(nn.Module):
 
 
 class FullAttention(nn.Module):
-    """Reference eager causal attention for the NoPE OLMo variant."""
+    """Reference full/sliding causal attention for the NoPE OLMo variant."""
 
-    def __init__(self, config: SimpleNamespace) -> None:
+    def __init__(self, config: SimpleNamespace, layer_id: int = 0) -> None:
         super().__init__()
         self.config = config
+        self.sliding_window = (
+            config.sliding_window
+            if config.layer_types[layer_id] == "sliding_attention"
+            else None
+        )
         head_dim = config.head_dim
         self.q_proj = nn.Linear(
-            config.hidden_size, config.num_attention_heads * head_dim, bias=False
+            config.hidden_size,
+            config.num_attention_heads * head_dim,
+            bias=config.attention_bias,
         )
         self.k_proj = nn.Linear(
-            config.hidden_size, config.num_key_value_heads * head_dim, bias=False
+            config.hidden_size,
+            config.num_key_value_heads * head_dim,
+            bias=config.attention_bias,
         )
         self.v_proj = nn.Linear(
-            config.hidden_size, config.num_key_value_heads * head_dim, bias=False
+            config.hidden_size,
+            config.num_key_value_heads * head_dim,
+            bias=config.attention_bias,
         )
         per_head = getattr(config, "qk_norm_per_head_gains", False)
         self.q_norm = RMSNorm(
@@ -309,13 +320,17 @@ class FullAttention(nn.Module):
             self.register_parameter("ssmax_scale", None)
         self.g_proj = (
             nn.Linear(
-                config.hidden_size, config.num_attention_heads * head_dim, bias=False
+                config.hidden_size,
+                config.num_attention_heads * head_dim,
+                bias=config.attention_bias,
             )
             if config.attention_gate_type == "elementwise"
             else None
         )
         self.o_proj = nn.Linear(
-            config.num_attention_heads * head_dim, config.hidden_size, bias=False
+            config.num_attention_heads * head_dim,
+            config.hidden_size,
+            bias=config.attention_bias,
         )
 
     def forward(
@@ -355,6 +370,12 @@ class FullAttention(nn.Module):
             ),
             diagonal=1,
         )
+        if self.sliding_window is not None:
+            positions = torch.arange(sequence_length, device=inputs.device)
+            outside_window = (
+                positions[:, None] - positions[None, :] >= self.sliding_window
+            )
+            causal_mask.masked_fill_(outside_window, float("-inf"))
         probabilities = torch.softmax(scores.float() + causal_mask, dim=-1).to(
             inputs.dtype
         )
@@ -382,7 +403,7 @@ class DecoderLayer(nn.Module):
         self.self_attn = (
             KDAAttention(config)
             if config.layer_types[layer_id] == "linear_attention"
-            else FullAttention(config)
+            else FullAttention(config, layer_id)
         )
         self.mlp = (
             DenseMLP(

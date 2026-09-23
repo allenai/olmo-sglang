@@ -36,7 +36,7 @@ from sglang.srt.layers.vocab_parallel_embedding import (
 )
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.model_loader.weight_utils import default_weight_loader
-from sglang.srt.runtime_context import get_parallel
+from sglang.srt.runtime_context import get_parallel, get_server_args
 from sglang.srt.utils import add_prefix, make_layers
 from torch import nn
 from transformers import PretrainedConfig
@@ -370,7 +370,7 @@ class Olmo3MoeAttention(nn.Module):
             ColumnParallelLinear(
                 config.hidden_size,
                 self.total_num_heads * self.head_dim,
-                bias=False,
+                bias=config.attention_bias,
                 quant_config=quant_config,
                 tp_rank=parallel.attn_tp_rank,
                 tp_size=attn_tp_size,
@@ -618,6 +618,19 @@ class Olmo3MoeForCausalLM(nn.Module):
 
     def get_input_embeddings(self) -> nn.Module:
         return self.model.embed_tokens
+
+    def get_attention_sliding_window_size(self) -> int | None:
+        """Expose the window bound needed by the pinned backend's KV metadata."""
+        if "sliding_attention" in self.config.layer_types:
+            args = get_server_args()
+            decode_backend = args.decode_attention_backend or args.attention_backend
+            # Pinned Triton clips decode KV to this token count, including the
+            # current token. FlashInfer adds one to the exclusive left window.
+            # Each layer still uses window - 1 for its causal prefill mask.
+            if decode_backend == "triton":
+                return self.config.sliding_window
+            return self.config.sliding_window - 1
+        return None
 
     @torch.no_grad()
     def forward(

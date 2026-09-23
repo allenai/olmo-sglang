@@ -1,79 +1,57 @@
-# Status
+# Validation status
 
-The implementation is suitable for controlled inference experiments and is
-integrated into the OLMo-MILES runtime. Ordinary autoregressive decoding is the
-production default. Experimental cache and speculative features require the
-feature-specific gates below before enabling them in a new topology.
+`olmo-sglang` supports standalone OLMo inference in the
+[pinned SGLang runtime](compatibility.md#integration-baseline). The implementation
+has CPU regression tests, GPU kernel tests, and whole-engine checks. The table
+below records what those checks establish and where evidence is still missing.
 
-## Implemented
+## Evidence by feature
 
-- Native full and sliding-window attention.
-- Native OLMo KDA prefill and cached decode through FLA 0.5.2.
-- Exact optional negative-eigenvalue semantics using `2 * sigmoid(beta)`.
-- Unequal K/V widths in the recurrent-state cache.
-- Headwise Q/K normalization and optional elementwise attention output gates.
-- Peri-LN residual ordering.
-- Dense SwiGLU and routed MoE, including OLMo routing normalization and restored
-  top-k scaling.
-- Optional latent down/up projections and a full-width shared expert.
-- HF-layout loading into SGLang's fused QKV, SwiGLU, and MoE tensors.
-- Standard tensor-parallel sharding for KDA projections, convolution state, and
-  recurrent state.
-- Branch-capable KDA radix snapshots through SGLang's `extra_buffer` strategy.
-- Fused speculative target verification for chains and explicit trees, with
-  CUDA-graph replay coverage.
-- A package-local FLA 0.5.2 compatibility shim for newer Triton releases.
+| Area | Established coverage | Limits |
+|---|---|---|
+| Full/sliding attention | Native attention, headwise Q/K normalization, optional per-head gains, scalable softmax, and elementwise output gates. Tiny BF16 full and biased sliding-attention/HF parity includes chunked prefill and decode graphs. | Triton attention was exercised in the current audit. Only the [supported configuration](compatibility.md#checkpoint-contract) is accepted. Full-checkpoint probability parity remains unresolved. |
+| KDA prefill and decode | FLA 0.5.2 prefill, packed Triton decode, FP32 recurrent state, unequal K/V widths, and optional `2 * sigmoid(beta)` semantics. GPU recurrence and CUDA-graph tests pass. | These checks establish operator and fixture correctness, not numerical equivalence for every checkpoint. |
+| Dense and sparse MoE | Dense SwiGLU, FP32 routing with restored top-k scaling, latent/shared experts, peri-LN, and HF-to-fused weight loading. Tiny hybrid-MoE serving is compared with HF. | BF16 kernel rounding can change full-model probabilities and expert choices; see [numerical findings](numerical-findings.md). |
+| Weight updates | Tiny TP1 live Q/K-gain and scale updates match a fresh changed-checkpoint engine under decode graphs. Every begin, bucket, and end response must succeed. Regression coverage includes expert-name resolution and gate-bias loading. | This is a standalone engine check. Multi-replica publication and policy-version ownership belong to the caller. |
+| KDA radix caching | Branch copy, eviction, isolation, cleared-slot reuse, mixed-length chunked prefill, and idle flush/reload have focused coverage. | The reload probe uses the same weights to isolate invalidation. Changed-policy publication with cache enabled still needs a matched fresh-engine check in the intended topology. Cache hits depend on tracked recurrent-state boundaries. |
+| Tensor parallelism | KDA projection/state sharding and per-head gain loading have rank-level tests. A [production TP1/TP2 screen](https://github.com/allenai/olmo-miles/blob/07887b783ab254577a6656168dc0e0d21aebfe3d/docs/measurements/tensor-parallel-screen.md) matched eight greedy tokens. | Historical TP2 max chosen-token logprob difference was 0.04458. The September 23 local checks use one GPU; the newer gain/scale combination has no whole-engine TP2 result. |
+| Speculative decoding | Chain/tree target verification, scratch-state isolation, and CUDA-graph replay have correctness tests. | The [trained-checkpoint NGRAM screen](https://github.com/allenai/olmo-miles/blob/07887b783ab254577a6656168dc0e0d21aebfe3d/docs/measurements/ngram-speculative-screen.md) was slower than ordinary decode. Keep it opt-in; a better draft source needs a new screen. |
 
-## Readiness by area
+See [the September 23 audit](validation.md#september-23-2026-validation-audit) for
+current commands, runtime identity, and results. Earlier scheduler probes also
+exercised cancellation, forced retraction, and organic KV-pressure retraction;
+[validation](validation.md#radix-cache-lifecycle) describes the runnable checks.
 
-| Area | Current position |
-|---|---|
-| Full/sliding attention inference | Implemented; validate each production checkpoint and runtime |
-| Ordinary KDA inference | Correctness path implemented; GPU and FLA required |
-| KDA radix caching | Branch lifecycle validated locally; production refresh/load topology remains a gate |
-| Tensor parallelism | TP=1 versus TP=2 greedy parity established under the tested constraints |
-| Speculative decoding | Correctness path implemented; trained-checkpoint performance is unscreened |
-| MILES policy refresh | Changed-weight async/replay exercised on EP2 and EP8 with eager, cache-disabled serving; other combinations retain the gates below. See [integration limits](compatibility.md#olmo-miles-qualification-limits). |
+## Known numerical limitation
 
-Current OLMo-MILES experiments and their precision, determinism, replay and
-recovery limits are recorded in [compatibility](compatibility.md#olmo-miles-qualification-limits).
-Standalone feature implementation does not imply that every RL combination is qualified.
+The step-75500 full-checkpoint comparison matched eight greedy predictions but
+failed its 0.1 absolute log-probability threshold: maximum checked error was
+0.3118 with unchunked prefill and 0.5619 with chunking plus decode graphs.
+Tiny-model passes do not clear this result. The recorded Core/HF comparison also
+found discrepancies, so the error cannot yet be attributed entirely to the
+SGLang implementation. See [numerical findings](numerical-findings.md).
 
-## Required production correctness gates
+Applications requiring reference-equivalent probabilities or routing must
+validate the actual checkpoint and dtype. Token agreement alone is insufficient.
 
-- Compare prompt logits, greedy tokens, and MoE router selections against the
-  training/reference implementation at the intended serving dtype.
-- Validate changed actor weights on every rollout replica and prove generation
-  changes at the new policy version.
-- Exercise production checkpoint, tokenizer, stop conditions, cancellation,
-  request distribution, and concurrency in the intended serving topology.
-- If radix caching is enabled, prove first-request misses and subsequent reuse
-  after each weight refresh across every replica.
+## Deployment checks
 
-## KDA and scheduler gates
+For a new deployment, validate its checkpoint/tokenizer, stop conditions,
+cancellation, realistic request lengths, and concurrency. When publishing changed
+weights, require successful updates on every replica, verify the policy version
+and changed outputs, and invalidate cached state before admitting new requests.
+These are topology-specific integration checks. Existing OLMo-MILES evidence and
+its limits are recorded in [compatibility](compatibility.md#olmo-miles-qualification-limits).
 
-Completed focused coverage includes prefix hits, divergent branches, eviction,
-request isolation, cleared-slot reuse, mixed-length chunked prefill,
-cancellation, forced scheduler retraction, organic KV-pressure retraction, and
-idle cache flush/reload behavior.
+## Performance and maintenance
 
-Before enabling those paths for a new workload, repeat them with the production
-checkpoint and realistic request lengths. Recurrent state cannot be split from
-an arbitrary compressed radix edge like per-token attention KV, so cache-hit
-behavior depends on tracked state boundaries.
+Decode CUDA graphs already have a [matched production workload screen](https://github.com/allenai/olmo-miles/blob/07887b783ab254577a6656168dc0e0d21aebfe3d/docs/measurements/decode-cuda-graph-screen.md),
+including a 50-update comparison. NGRAM speculation was also screened: mean
+response tokens/GPU/s fell by 26.6% with about 15.5% draft acceptance. These
+historical results inform defaults for that workload; they are not throughput
+promises for another checkpoint or topology.
 
-## Performance and hardening work
-
-- Compare decode CUDA-graph replay with the matched packed eager path.
-- Replace or upstream the FLA 0.5.2/Triton compatibility shim.
-- Expand BF16 and production-dimension coverage across real sparse-MoE layers.
-- Measure speculative proposed tokens, acceptance, verifier latency, and net
-  throughput with a useful trained draft source.
-- Profile and reduce remaining unfused KDA/MoE decode glue.
-- Optionally add a slow, dependency-light CPU reference recurrence for broader
-  portable coverage.
-
-The packed one-token Triton recurrence has shown a large microbenchmark
-improvement over invoking an FLA chunk at batch-one model-shaped dimensions,
-but microbenchmarks are not an end-to-end serving claim. Use the validation
-ladder in [validation](validation.md) for any runtime or checkpoint change.
+Remaining optimization work includes a more useful draft source and profiling
+KDA/MoE decode overhead on the intended workload. The guarded FLA 0.5.2/Triton
+compatibility shim remains maintenance work. An independent PyTorch KDA
+recurrence already exists in `validation/reference.py` and runs in CPU CI.

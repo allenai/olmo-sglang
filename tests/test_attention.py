@@ -1,5 +1,6 @@
 import importlib
 from functools import partial
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -96,6 +97,79 @@ def test_replicated_kv_assignment_matches_contiguous_query_groups():
     ]
     with pytest.raises(ValueError):
         local_head_range(3, 8, 0)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="native SGLang model import requires CUDA"
+)
+@pytest.mark.parametrize("layer_type", ["sliding_attention", "full_attention"])
+@pytest.mark.parametrize(
+    "backend, decode_backend, expected",
+    [("triton", None, 8), ("flashinfer", None, 7), ("flashinfer", "triton", 8)],
+)
+def test_runtime_resolves_the_sliding_window_for_the_decode_backend(
+    layer_type, backend, decode_backend, expected
+):
+    from sglang.srt.model_executor.model_runner_components.load_model_utils import (
+        resolve_sliding_window_size,
+    )
+    from sglang.srt.runtime_context import get_context
+
+    from olmo_sglang.models.olmo3_moe import Olmo3MoeForCausalLM
+
+    model = Olmo3MoeForCausalLM.__new__(Olmo3MoeForCausalLM)
+    nn.Module.__init__(model)
+    model.config = SimpleNamespace(
+        layer_types=["linear_attention", layer_type], sliding_window=8
+    )
+    model_config = SimpleNamespace(is_hybrid_swa=False, attention_chunk_size=None)
+    with get_context().override_server_args(
+        attention_backend=backend, decode_attention_backend=decode_backend
+    ):
+        assert resolve_sliding_window_size(model, model_config) == (
+            expected if layer_type == "sliding_attention" else None
+        )
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="native SGLang model import requires CUDA"
+)
+def test_elementwise_attention_gate_loads_and_uses_checkpoint_bias():
+    from sglang.srt.runtime_context import get_context, get_parallel
+
+    from olmo_sglang.models.olmo3_moe import Olmo3MoeAttention, Olmo3MoeForCausalLM
+
+    config = SimpleNamespace(
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        attention_hidden_size=32,
+        head_dim=8,
+        hidden_size=32,
+        attention_bias=True,
+        attention_gate_type="elementwise",
+        rms_norm_eps=1e-5,
+        use_rope=False,
+        layer_types=["full_attention"],
+        n_routed_experts=0,
+    )
+    with (
+        get_context().override_server_args(),
+        get_parallel().override(tp_size=1, tp_rank=0, attn_tp_size=1, attn_tp_rank=0),
+    ):
+        attention = Olmo3MoeAttention(config, layer_id=0, quant_config=None, prefix="")
+    model = Olmo3MoeForCausalLM.__new__(Olmo3MoeForCausalLM)
+    nn.Module.__init__(model)
+    model.config = config
+    model.model = nn.Module()
+    model.model.layers = nn.ModuleList([nn.Module()])
+    model.model.layers[0].self_attn = attention
+    name = "model.layers.0.self_attn.g_proj.bias"
+    bias = torch.linspace(-2, 2, 32)
+    with torch.no_grad():
+        attention.g_proj.weight.zero_()
+        assert model.load_weights([(name, bias)]) == {name}
+        gate, _ = attention.g_proj(torch.zeros(2, 32))
+    torch.testing.assert_close(gate, bias.expand(2, -1))
 
 
 @pytest.mark.skipif(
