@@ -3,6 +3,7 @@
 import torch
 from sglang.srt.layers.radix_attention import RadixAttention
 from sglang.srt.mem_cache.memory_pool import KVWriteLoc
+from sglang.srt.model_executor.forward_context import get_attn_backend
 from torch.nn import functional as F
 
 
@@ -12,7 +13,9 @@ class CoreRadixAttention(RadixAttention):
     def forward(self, q, k, v, forward_batch, save_kv_cache=True, **kwargs):
         if kwargs:
             raise ValueError("Unsupported Core attention forward options")
-        backend = forward_batch.attn_backend
+        if not q.numel():
+            return q
+        backend = get_attn_backend()
         pool = backend.token_to_kv_pool
         requests = backend.req_to_token_pool.req_to_token
         if save_kv_cache:
