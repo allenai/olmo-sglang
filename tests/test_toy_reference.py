@@ -33,7 +33,7 @@ def _generator_module():
         ("attention-dense", 1, False),
         ("kda-dense", 1, False),
         ("hybrid-moe", 2, True),
-        ("hero-hybrid-moe", 2, True),
+        ("scaled-attention-hybrid-moe", 2, True),
     ),
 )
 def test_toy_reference_strictly_loads_each_profile(

@@ -17,6 +17,13 @@ The source distribution includes both directories and the detailed docs through
 `MANIFEST.in`; the runtime wheel contains only the importable package and CLI
 entry points.
 
+Keep generated measurement JSON, logs, and activation dumps with run artifacts
+outside the source tree or under Git-ignored `runs/`. Commit the checks that
+produce them and concise summaries of the findings, source/image identities,
+commands, thresholds, and limitations. Numerical fixtures belong in the tree
+when a regression test consumes them. Historical reports can be linked at an
+immutable Git commit rather than carried forward in the maintained tree.
+
 ## Local checks
 
 Run the portable suite:

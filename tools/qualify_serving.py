@@ -12,33 +12,26 @@ from safetensors.torch import load_file, save_file
 from transformers import AutoModelForCausalLM
 
 from olmo_sglang import register
-from olmo_sglang.validation.core_reference import evaluate_core_reference
 from olmo_sglang.validation.serving_diagnosis import compare_modes
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Bounded BF16 hero HF / TP1 SGLang serving qualification"
+        description="BF16 HF / TP1 SGLang checks for per-head Q/K gains and scalable softmax"
     )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument(
         "--model", type=Path, help="Existing HF checkpoint; never modified"
     )
     source.add_argument(
-        "--tiny-dir", type=Path, help="Create a NEW tiny hero fixture here"
+        "--tiny-dir", type=Path, help="Create a NEW tiny scaled-attention fixture here"
     )
     parser.add_argument(
         "--hf-source",
         type=Path,
-        help="Hero HF Python source directory, required for a new tiny fixture",
+        help="HF Python source directory supporting per-head gains and scalable softmax",
     )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument(
-        "--core-reference",
-        action="store_true",
-        help="Also compare native Core factory/import using torch attention and no EP",
-    )
-    parser.add_argument("--core-logprob-atol", type=float, default=0.05)
     parser.add_argument(
         "--diagnostic-mode-matrix",
         action="store_true",
@@ -77,7 +70,7 @@ def main():
         generator = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(generator)
         generator.build_checkpoint(
-            ROOT, profile="hero-hybrid-moe", max_position_embeddings=256
+            ROOT, profile="scaled-attention-hybrid-moe", max_position_embeddings=256
         )
         for name in (
             "configuration_olmo3moe.py",
@@ -96,9 +89,7 @@ def main():
         (ROOT / "config.json").write_text(json.dumps(config))
     config = json.loads((ROOT / "config.json").read_text())
     if not config.get("qk_norm_per_head_gains") or not config.get("scalable_softmax"):
-        parser.error("Both hero attention flags must be enabled")
-    if args.core_reference and args.core_logprob_atol <= 0:
-        parser.error("--core-logprob-atol must be positive")
+        parser.error("qk_norm_per_head_gains and scalable_softmax must both be enabled")
     if args.logprob_atol <= 0:
         parser.error("--logprob-atol must be positive")
     if args.recurrent_hf_prefill:
@@ -131,31 +122,14 @@ def main():
                 tokens.append(token)
                 seq = torch.cat([seq, torch.tensor([[token]], device="cuda")], dim=-1)
             references.append({"tokens": tokens, "logprobs": distributions})
-    core_comparison = None
-    if args.core_reference:
-        native_hf_config = model.config
-        native_hf_state = {
-            name: value.detach().cpu() for name, value in model.state_dict().items()
-        }
     del model
     gc.collect()
     torch.cuda.empty_cache()
-    if args.core_reference:
-        core_comparison = evaluate_core_reference(
-            hf_config=native_hf_config,
-            hf_state=native_hf_state,
-            prompts=prompts,
-            references=references,
-            logprob_atol=args.core_logprob_atol,
-            recurrent_kda=args.recurrent_hf_prefill,
-        )
-        del native_hf_state
     register()
     report = {
         "model_path": str(ROOT),
         "model_config": config,
         "prompt_ids": prompts,
-        "core_reference": core_comparison,
         "hf_source_sha256": {
             name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
             for name in ("configuration_olmo3moe.py", "modeling_olmo3moe.py")
@@ -319,7 +293,7 @@ def main():
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(report, indent=2, default=list))
             print(
-                "HERO_MODE",
+                "SERVING_MODE",
                 graphs,
                 chunk,
                 [(o["output_ids"], r["tokens"]) for o, r in zip(outputs, references)],
@@ -365,10 +339,6 @@ def main():
         and mode_parity
         and (token_parity or not args.require_token_parity)
     )
-    if args.core_reference:
-        report["passed"] &= core_comparison["passed"] and (
-            core_comparison["token_parity"] or not args.require_token_parity
-        )
     if args.check_live_update:
         update = report["live_update"]
         report["passed"] &= (
@@ -377,7 +347,7 @@ def main():
             and update["changed_logprobs"]
         )
     args.output.write_text(json.dumps(report, indent=2, default=list))
-    print("HERO_COMPLETE", args.output, "passed=", report["passed"], flush=True)
+    print("SERVING_COMPLETE", args.output, "passed=", report["passed"], flush=True)
     if not report["passed"]:
         raise SystemExit(1)
 

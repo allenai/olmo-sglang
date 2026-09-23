@@ -95,7 +95,7 @@ stress gates; their low-memory settings are not serving defaults.
 ## Independent parity loop
 
 The parity fixture includes a tokenizer and an independent PyTorch reference.
-Four profiles isolate attention, KDA, hybrid MoE, and production dimensions:
+The standard profiles isolate attention, KDA, hybrid MoE, and production dimensions:
 
 ```bash
 export PARITY_ROOT=/tmp/olmo-sglang-parity
@@ -119,6 +119,10 @@ cached-decode error from a broader model or prefill mismatch.
 The `production-shape` fixture uses production hidden, attention, KDA, latent,
 and expert widths plus the first five-layer attention pattern. It keeps 32
 rather than 512 routed experts so it remains practical on a workstation GPU.
+
+The additional `scaled-attention-hybrid-moe` profile exercises per-head Q/K gains
+and scalable softmax. See [attention](attention.md) for its HF comparison,
+CUDA-graph, and live weight-update checks.
 
 ## Speculative verification
 

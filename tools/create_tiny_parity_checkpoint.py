@@ -22,7 +22,7 @@ PROFILES = (
     "attention-dense",
     "kda-dense",
     "hybrid-moe",
-    "hero-hybrid-moe",
+    "scaled-attention-hybrid-moe",
     "production-shape",
 )
 CHAT_TEMPLATE = """{%- for message in messages -%}
@@ -48,7 +48,7 @@ def _config(
         "attention-dense": ["full_attention"],
         "kda-dense": ["linear_attention"],
         "hybrid-moe": ["linear_attention", "full_attention"],
-        "hero-hybrid-moe": ["linear_attention", "full_attention"],
+        "scaled-attention-hybrid-moe": ["linear_attention", "full_attention"],
         "production-shape": [
             "linear_attention",
             "linear_attention",
@@ -59,7 +59,8 @@ def _config(
     }[profile]
     dense_layers = (
         list(range(len(layer_types)))
-        if profile not in {"hybrid-moe", "hero-hybrid-moe", "production-shape"}
+        if profile
+        not in {"hybrid-moe", "scaled-attention-hybrid-moe", "production-shape"}
         else []
     )
     config = {
@@ -111,7 +112,7 @@ def _config(
         "use_rope": False,
         "vocab_size": len(tokenizer),
     }
-    if profile == "hero-hybrid-moe":
+    if profile == "scaled-attention-hybrid-moe":
         config.update(
             qk_norm_per_head_gains=True,
             scalable_softmax=True,

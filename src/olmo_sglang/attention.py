@@ -1,4 +1,4 @@
-"""Hero attention gains and position-dependent query scaling."""
+"""Per-head attention gains and position-dependent query scaling."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def scale_attention_queries(
 
 
 def check_head_weights_loaded(parameters: dict[str, nn.Parameter]) -> None:
-    """Reject missing hero checkpoint tensors before the first forward pass."""
+    """Reject missing per-head gain and softmax-scale tensors before the first forward pass."""
     missing = [
         name
         for name, parameter in parameters.items()
@@ -92,5 +92,5 @@ def check_head_weights_loaded(parameters: dict[str, nn.Parameter]) -> None:
     ]
     if missing:
         raise RuntimeError(
-            f"Hero attention weights were not loaded: {', '.join(missing)}"
+            f"Attention gain or scale weights were not loaded: {', '.join(missing)}"
         )

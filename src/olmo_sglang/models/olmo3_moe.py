@@ -333,7 +333,7 @@ class Olmo3MoeAttention(nn.Module):
         )
         self.per_head_gains = getattr(config, "qk_norm_per_head_gains", False)
         self.scalable_softmax = getattr(config, "scalable_softmax", False)
-        self._hero_weights_checked = False
+        self._head_weights_checked = False
         if self.per_head_gains:
             self.q_norm = PerHeadRMSNorm(
                 self.num_heads, self.head_dim, config.rms_norm_eps
@@ -425,14 +425,14 @@ class Olmo3MoeAttention(nn.Module):
         hidden_states: torch.Tensor,
         forward_batch: ForwardBatch,
     ) -> torch.Tensor:
-        if not self._hero_weights_checked:
+        if not self._head_weights_checked:
             required = {}
             if self.per_head_gains:
                 required.update(q_norm=self.q_norm.weight, k_norm=self.k_norm.weight)
             if self.scalable_softmax:
                 required["ssmax_scale"] = self.ssmax_scale
             check_head_weights_loaded(required)
-            self._hero_weights_checked = True
+            self._head_weights_checked = True
         qkv = self.qkv_proj(hidden_states)[0]
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         if self.per_head_gains:
