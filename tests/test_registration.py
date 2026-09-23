@@ -17,12 +17,15 @@ def test_register_configures_workers_and_current_process(monkeypatch):
     registry_module.ModelRegistry = SimpleNamespace(
         register=lambda *args, **kwargs: calls.append((args, kwargs))
     )
+    backend_module = ModuleType("olmo_sglang.kda.backend")
+    backend_module.register_olmo_kda_backend = lambda: calls.append("kda")
     monkeypatch.setitem(sys.modules, "sglang.srt.models.registry", registry_module)
+    monkeypatch.setitem(sys.modules, "olmo_sglang.kda.backend", backend_module)
     monkeypatch.delenv("SGLANG_EXTERNAL_MODEL_PACKAGE", raising=False)
 
     register()
 
-    assert calls == [((MODEL_PACKAGE,), {"overwrite": True, "strict": True})]
+    assert calls == ["kda", ((MODEL_PACKAGE,), {"overwrite": True, "strict": True})]
     assert __import__("os").environ["SGLANG_EXTERNAL_MODEL_PACKAGE"] == MODEL_PACKAGE
 
 

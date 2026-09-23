@@ -3,13 +3,14 @@ from types import SimpleNamespace
 
 import pytest
 import torch
+from sglang.srt.runtime_context import get_parallel
+
 from olmo_sglang.models.olmo3_moe import (
     _first_sparse_layer_id,
     _local_expert_range,
     _log_ep_activity,
     _log_ep_parallelism,
 )
-from sglang.srt.runtime_context import get_parallel
 
 
 def test_parallelism_log_reports_resolved_ep_topology(caplog) -> None:

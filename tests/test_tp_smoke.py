@@ -1,7 +1,8 @@
+import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
-import sglang
 
 from olmo_sglang.validation import tensor_parallel as tp_smoke
 
@@ -38,7 +39,9 @@ def test_create_engine_pins_miles_execution_contract(monkeypatch):
         captured.update(kwargs)
         return object()
 
-    monkeypatch.setattr(sglang, "Engine", fake_engine)
+    sglang = ModuleType("sglang")
+    sglang.Engine = fake_engine
+    monkeypatch.setitem(sys.modules, "sglang", sglang)
 
     tp_smoke._create_engine(
         Path("model"), tp_size=2, context_length=128, mem_fraction_static=0.25

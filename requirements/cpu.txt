@@ -1,0 +1,7 @@
+# Python 3.12 CPU test environment; keep GPU/runtime dependencies separate.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.13.0+cpu
+pytest==9.1.1
+transformers==5.12.1
+tokenizers==0.22.2
+safetensors==0.8.0

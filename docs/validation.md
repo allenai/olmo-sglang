@@ -162,6 +162,10 @@ primary changed variable.
 
 ## Repository tests
 
+GitHub Actions runs the portable subset with `--cpu-only`; see
+[development](development.md#local-checks) for its pinned environment and coverage.
+To include the runtime integration tests, use a compatible SGLang installation:
+
 ```bash
 PYTHONPATH=src .venv/bin/python -m pytest tests -q
 .venv/bin/ruff format --check src tests tools examples

@@ -90,6 +90,10 @@ and embedded-engine examples.
 
 ## Development check
 
+For the CPU-only GitHub Actions environment and dependency installation, see
+[local checks](docs/development.md#local-checks). With a compatible SGLang runtime,
+run the full suite:
+
 ```bash
 PYTHONPATH=src .venv/bin/python -m pytest tests -q
 .venv/bin/ruff format --check src tests tools examples
