@@ -39,8 +39,10 @@ from sglang.srt.model_loader.weight_utils import default_weight_loader
 from sglang.srt.runtime_context import get_parallel, get_server_args
 from sglang.srt.utils import add_prefix, make_layers
 from torch import nn
+from torch.nn import functional as F
 from transformers import PretrainedConfig
 
+from olmo_sglang import core_compat
 from olmo_sglang.activations import native_silu_and_mul
 from olmo_sglang.attention import (
     PerHeadRMSNorm,
@@ -49,6 +51,7 @@ from olmo_sglang.attention import (
     scale_attention_queries,
 )
 from olmo_sglang.config import validate_olmo3_moe_config
+from olmo_sglang.core_attention import CoreRadixAttention
 from olmo_sglang.kda.layer import Olmo3MoeKDAAttention
 from olmo_sglang.routing import fp32_router_logits, olmo3_moe_topk
 
@@ -215,7 +218,8 @@ class Olmo3MoeSparseMLP(nn.Module):
                 prefix=add_prefix("latent_up_proj", prefix),
             )
 
-        self.experts = FusedMoE(
+        expert_class = core_compat.CoreExperts if core_compat.enabled() else FusedMoE
+        self.experts = expert_class(
             num_experts=self.num_experts,
             hidden_size=expert_hidden_size,
             intermediate_size=config.moe_intermediate_size,
@@ -237,7 +241,7 @@ class Olmo3MoeSparseMLP(nn.Module):
 
         shared_size = getattr(config, "shared_expert_intermediate_size", None)
         self.shared_expert = (
-            Olmo3MoeDenseMLP(
+            (core_compat.CoreDenseMLP if core_compat.enabled() else Olmo3MoeDenseMLP)(
                 config.hidden_size,
                 shared_size,
                 quant_config=quant_config,
@@ -290,6 +294,7 @@ class Olmo3MoeAttention(nn.Module):
     ) -> None:
         super().__init__()
         self.config = config
+        self.core_compat = core_compat.enabled()
         self.layer_id = layer_id
         parallel = get_parallel()
         attn_tp_size = parallel.attn_tp_size
@@ -352,8 +357,12 @@ class Olmo3MoeAttention(nn.Module):
                     tp_rank=parallel.attn_tp_rank,
                 )
         else:
-            self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
-            self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
+            self.q_norm = (
+                core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm
+            )(self.head_dim, eps=config.rms_norm_eps)
+            self.k_norm = (
+                core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm
+            )(self.head_dim, eps=config.rms_norm_eps)
         if self.scalable_softmax:
             self.ssmax_scale = nn.Parameter(torch.ones(self.num_heads))
             self.ssmax_scale.weight_loader = partial(
@@ -401,7 +410,10 @@ class Olmo3MoeAttention(nn.Module):
         sliding_window = (
             config.sliding_window - 1 if layer_type == "sliding_attention" else -1
         )
-        self.attn = RadixAttention(
+        attention_class = (
+            CoreRadixAttention if core_compat.enabled() else RadixAttention
+        )
+        self.attn = attention_class(
             self.num_heads,
             self.head_dim,
             self.head_dim**-0.5,
@@ -433,8 +445,14 @@ class Olmo3MoeAttention(nn.Module):
                 required["ssmax_scale"] = self.ssmax_scale
             check_head_weights_loaded(required)
             self._head_weights_checked = True
-        qkv = self.qkv_proj(hidden_states)[0]
-        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+        if self.core_compat:
+            weights = self.qkv_proj.weight.split(
+                [self.q_size, self.kv_size, self.kv_size], dim=0
+            )
+            q, k, v = [F.linear(hidden_states, w) for w in weights]
+        else:
+            qkv = self.qkv_proj(hidden_states)[0]
+            q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         if self.per_head_gains:
             q = self.q_norm(q.reshape(-1, self.num_heads, self.head_dim)).reshape_as(q)
             k = self.k_norm(k.reshape(-1, self.num_kv_heads, self.head_dim)).reshape_as(
@@ -485,7 +503,7 @@ class Olmo3MoeDecoderLayer(nn.Module):
             prefix=add_prefix("self_attn", prefix),
         )
         self.mlp = (
-            Olmo3MoeDenseMLP(
+            (core_compat.CoreDenseMLP if core_compat.enabled() else Olmo3MoeDenseMLP)(
                 config.hidden_size,
                 config.dense_mlp_intermediate_size,
                 quant_config=quant_config,
@@ -500,21 +518,25 @@ class Olmo3MoeDecoderLayer(nn.Module):
             )
         )
         self.pre_attention_layernorm = (
-            RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+            (core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm)(
+                config.hidden_size, eps=config.rms_norm_eps
+            )
             if config.use_peri_ln
             else None
         )
-        self.post_attention_layernorm = RMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps
-        )
+        self.post_attention_layernorm = (
+            core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm
+        )(config.hidden_size, eps=config.rms_norm_eps)
         self.pre_feedforward_layernorm = (
-            RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+            (core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm)(
+                config.hidden_size, eps=config.rms_norm_eps
+            )
             if config.use_peri_ln
             else None
         )
-        self.post_feedforward_layernorm = RMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps
-        )
+        self.post_feedforward_layernorm = (
+            core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm
+        )(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
         self,
@@ -559,7 +581,9 @@ class Olmo3MoeModel(nn.Module):
             prefix=add_prefix("embed_tokens", prefix),
         )
         self.embed_norm = (
-            RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+            (core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm)(
+                config.hidden_size, eps=config.rms_norm_eps
+            )
             if getattr(config, "embed_norm", False)
             else None
         )
@@ -571,7 +595,9 @@ class Olmo3MoeModel(nn.Module):
             ),
             prefix=add_prefix("layers", prefix),
         )
-        self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.norm = (core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm)(
+            config.hidden_size, eps=config.rms_norm_eps
+        )
 
     def forward(
         self,
@@ -603,6 +629,9 @@ class Olmo3MoeForCausalLM(nn.Module):
         prefix: str = "",
     ) -> None:
         super().__init__()
+        core_compat.validate_runtime(
+            config, get_parallel(), get_server_args(), quant_config
+        )
         self.config = config
         self.quant_config = quant_config
         self.model = Olmo3MoeModel(
@@ -658,7 +687,7 @@ class Olmo3MoeForCausalLM(nn.Module):
             fused_layers = {
                 f"{module_name}.{attribute}": module
                 for module_name, module in self.named_modules()
-                if isinstance(module, FusedMoE)
+                if isinstance(module, (FusedMoE, core_compat.CoreExperts))
                 for attribute in ("w13_weight", "w2_weight")
             }
             resolver = self._weight_targets = WeightTargets(
