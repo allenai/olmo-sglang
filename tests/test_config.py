@@ -44,3 +44,15 @@ def test_rejects_kda_config_with_missing_fields():
 def test_rejects_layer_count_mismatch():
     with pytest.raises(ValueError, match="one entry per logical layer"):
         validate_olmo3_moe_config(_config(num_hidden_layers=3))
+
+
+def test_per_head_gains_require_headwise_normalization():
+    with pytest.raises(ValueError, match="use_head_qk_norm"):
+        validate_olmo3_moe_config(
+            _config(qk_norm_per_head_gains=True, use_head_qk_norm=False)
+        )
+    validate_olmo3_moe_config(
+        _config(
+            qk_norm_per_head_gains=True, use_head_qk_norm=True, scalable_softmax=True
+        )
+    )

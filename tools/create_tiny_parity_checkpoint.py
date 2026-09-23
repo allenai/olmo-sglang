@@ -22,6 +22,7 @@ PROFILES = (
     "attention-dense",
     "kda-dense",
     "hybrid-moe",
+    "scaled-attention-hybrid-moe",
     "production-shape",
 )
 CHAT_TEMPLATE = """{%- for message in messages -%}
@@ -41,14 +42,13 @@ def _randn(shape: tuple[int, ...], generator: torch.Generator) -> torch.Tensor:
 
 
 def _config(
-    profile: str,
-    tokenizer: PreTrainedTokenizerFast,
-    max_position_embeddings: int = 64,
+    profile: str, tokenizer: PreTrainedTokenizerFast, max_position_embeddings: int = 64
 ) -> dict[str, Any]:
     layer_types = {
         "attention-dense": ["full_attention"],
         "kda-dense": ["linear_attention"],
         "hybrid-moe": ["linear_attention", "full_attention"],
+        "scaled-attention-hybrid-moe": ["linear_attention", "full_attention"],
         "production-shape": [
             "linear_attention",
             "linear_attention",
@@ -59,7 +59,8 @@ def _config(
     }[profile]
     dense_layers = (
         list(range(len(layer_types)))
-        if profile not in {"hybrid-moe", "production-shape"}
+        if profile
+        not in {"hybrid-moe", "scaled-attention-hybrid-moe", "production-shape"}
         else []
     )
     config = {
@@ -111,6 +112,15 @@ def _config(
         "use_rope": False,
         "vocab_size": len(tokenizer),
     }
+    if profile == "scaled-attention-hybrid-moe":
+        config.update(
+            qk_norm_per_head_gains=True,
+            scalable_softmax=True,
+            head_dim=16,
+            moe_intermediate_size=32,
+            num_attention_heads=2,
+            num_key_value_heads=1,
+        )
     if profile == "production-shape":
         config.update(
             {
@@ -344,6 +354,19 @@ def _add_full_attention(
         }
     )
 
+    if config.get("qk_norm_per_head_gains", False):
+        for letter, heads in (
+            ("q", config["num_attention_heads"]),
+            ("k", config["num_key_value_heads"]),
+        ):
+            weights[f"{prefix}.{letter}_norm.weight"] = torch.linspace(
+                0.65, 1.4, heads * head_dim, dtype=torch.bfloat16
+            ).reshape(heads, head_dim)
+    if config.get("scalable_softmax", False):
+        weights[f"{prefix}.ssmax_scale"] = torch.linspace(
+            0.6, 1.3, config["num_attention_heads"], dtype=torch.bfloat16
+        )
+
 
 def build_checkpoint(
     output_dir: Path, *, profile: str, max_position_embeddings: int = 64
@@ -358,8 +381,7 @@ def build_checkpoint(
     tokenizer = _build_tokenizer(output_dir)
     config = _config(profile, tokenizer, max_position_embeddings)
     (output_dir / "config.json").write_text(
-        json.dumps(config, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+        json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     (output_dir / "generation_config.json").write_text(
         json.dumps(
@@ -429,10 +451,7 @@ def build_checkpoint(
             )
         else:
             _add_sparse_mlp(
-                weights,
-                prefix=f"{prefix}.mlp",
-                config=config,
-                generator=generator,
+                weights, prefix=f"{prefix}.mlp", config=config, generator=generator
             )
     save_file(weights, output_dir / "model.safetensors")
     LOGGER.info("profile=%s output=%s tensors=%d", profile, output_dir, len(weights))

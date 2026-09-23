@@ -33,13 +33,11 @@ def _generator_module():
         ("attention-dense", 1, False),
         ("kda-dense", 1, False),
         ("hybrid-moe", 2, True),
+        ("scaled-attention-hybrid-moe", 2, True),
     ),
 )
 def test_toy_reference_strictly_loads_each_profile(
-    tmp_path: Path,
-    profile: str,
-    expected_layers: int,
-    expects_router: bool,
+    tmp_path: Path, profile: str, expected_layers: int, expects_router: bool
 ) -> None:
     checkpoint = tmp_path / profile
     _generator_module().build_checkpoint(checkpoint, profile=profile)
