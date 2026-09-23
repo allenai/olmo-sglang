@@ -62,7 +62,9 @@ representations.
 - Model and attention TP groups must match for KDA.
 - Tensor-parallel head counts must divide evenly by the selected TP size.
 - Radix caching for KDA uses SGLang's `extra_buffer` strategy to preserve branch
-  states. Production rollout refreshes still require topology-specific testing.
+  states. Standalone changed-weight publication with radix caching and decode
+  graphs passes the [grouped update probe](validation.md#changed-weights-with-radix-caches-and-graphs).
+  Admission and policy-version coordination across replicas remain caller-owned.
 - Speculative verification has a fused tree-capable correctness path, but
   performance depends on a useful trained draft source and has not been
   established as a serving default.

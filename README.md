@@ -8,7 +8,8 @@ checkout. It can be used directly for inference or as the rollout runtime in
 Install the extension into the [tested SGLang runtime](docs/compatibility.md).
 The pinned source revision is `3145136dcd1238754e0ea2b2ffd546532119c71c`.
 See [validation status](docs/status.md) for measured coverage and known numerical
-limits, including the outstanding full-checkpoint probability comparison.
+limits, including measured full-checkpoint probability differences across
+execution paths.
 
 ## Supported model features
 

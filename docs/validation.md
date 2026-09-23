@@ -224,6 +224,43 @@ checks with Triton attention; they do not clear the historical full-checkpoint
 probability mismatch or establish whole-engine TP2 coverage for the newer
 gain/scale features. See [status](status.md) for those specific limits.
 
+## Changed weights with radix caches and graphs
+
+The grouped probe creates two tiny BF16 hybrid-MoE fixtures (scaled full
+attention and biased sliding attention). In each engine it populates caches,
+updates every tensor, checks cold/warm/mixed-length requests, and restores the
+original weights. A fresh changed-checkpoint engine runs the same requests.
+This exercises KDA projections/convolution/recurrent parameters, attention
+gains/scales/biases, dense/shared/routed expert loading, and graph replay in one
+run. All generations are capped at eight tokens.
+
+```bash
+python tools/qualify_cache_updates.py \
+  --tiny-dir /tmp/olmo-cache-updates \
+  --output runs/readiness/changed-cache.json
+```
+
+The fixture directories must not exist. Use `--eager` to diagnose a graph-specific
+failure. On September 23 both profiles passed on the RTX 4090: 72/77 tensors
+updated, zero logprob difference from matched fresh engines, exact restoration,
+and cache counts `0` cold / `256` warm and for all three mixed requests. Prompts
+were 300/268/332 tokens, with 64-token prefill chunks and graph batches 1/2/4.
+The [compact evidence](measurements/readiness-limits-20260923.json) records these
+results alongside recovered historical full-checkpoint controls. This is
+standalone TP1 publication; the caller still owns multi-replica admission.
+The follow-up full suite passed 127 tests with CUDA available; the portable CPU
+subset passed 83 (nine runtime/CUDA skips). A text-prompt check with SDPA HF
+attention matched all eight generated tokens in eager and graph modes, with maximum checked
+logprob error 0.026860 against the unchanged 0.05 fixture tolerance.
+
+For bounded real-checkpoint diagnosis, `qualify_serving.py` accepts repeated
+`--prompt-text`, `--max-new-tokens` from 1 through 8, and `--hf-attention eager|sdpa`.
+Reports record the reference attention backend and `OLMO_HF_MOE_CORE_REFERENCE`
+setting so a controlled reference cannot be confused with ordinary HF execution.
+The [full-checkpoint follow-up](numerical-findings.md#current-source-checkpoint-audit-september-23)
+ran both reference variants on one B300: greedy parity and graph comparisons
+passed, while strict probability checks failed at the unchanged 0.1 threshold.
+
 ## Repository tests
 
 GitHub Actions runs the portable subset with `--cpu-only`; see

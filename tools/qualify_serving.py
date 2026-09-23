@@ -3,13 +3,14 @@ import gc
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 from pathlib import Path
 
 import sglang as sgl
 import torch
 from safetensors.torch import load_file, save_file
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from olmo_sglang import register
 from olmo_sglang.validation.serving_diagnosis import compare_modes
@@ -39,6 +40,13 @@ def main():
         help="HF Python source directory supporting per-head gains and scalable softmax",
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--hf-attention", choices=("eager", "sdpa"), default="eager")
+    parser.add_argument(
+        "--prompt-text",
+        action="append",
+        help="Override synthetic prompts; repeat for a batch",
+    )
+    parser.add_argument("--max-new-tokens", type=int, choices=range(1, 9), default=4)
     parser.add_argument(
         "--diagnostic-mode-matrix",
         action="store_true",
@@ -107,11 +115,21 @@ def main():
         spec.loader.exec_module(settings)
         settings.install(recurrent=True)
     prompts = [[5 + i % 30 for i in range(n)] for n in (16, 81)]
+    if args.prompt_text:
+        tokenizer = AutoTokenizer.from_pretrained(ROOT, trust_remote_code=True)
+        prompts = [
+            tokenizer.encode(prompt, add_special_tokens=False)
+            for prompt in args.prompt_text
+        ]
+    if any(not prompt or len(prompt) + args.max_new_tokens > 256 for prompt in prompts):
+        parser.error(
+            "Each prompt must be nonempty and fit with its output in 256 tokens"
+        )
     model, load_info = AutoModelForCausalLM.from_pretrained(
         ROOT,
         trust_remote_code=True,
         dtype=torch.bfloat16,
-        attn_implementation="eager",
+        attn_implementation=args.hf_attention,
         output_loading_info=True,
     )
     assert not load_info["missing_keys"] and not load_info["unexpected_keys"], load_info
@@ -122,7 +140,7 @@ def main():
             seq = torch.tensor([prompt], device="cuda")
             tokens = []
             distributions = []
-            for _ in range(4):
+            for _ in range(args.max_new_tokens):
                 logits = model(seq, use_cache=False).logits[0, -1].float()
                 distributions.append(torch.log_softmax(logits, -1).cpu().tolist())
                 token = int(logits.argmax())
@@ -146,6 +164,9 @@ def main():
         "modes": [],
         "logprob_atol": args.logprob_atol,
         "recurrent_hf_prefill": args.recurrent_hf_prefill,
+        "hf_attention": args.hf_attention,
+        "hf_moe_core_reference": os.environ.get("OLMO_HF_MOE_CORE_REFERENCE", ""),
+        "max_new_tokens": args.max_new_tokens,
     }
     changed_root = None
     updated_outputs = None
@@ -200,7 +221,7 @@ def main():
                 input_ids=prompts,
                 sampling_params={
                     "temperature": 0,
-                    "max_new_tokens": 4,
+                    "max_new_tokens": args.max_new_tokens,
                     "ignore_eos": True,
                 },
                 return_logprob=True,
@@ -237,7 +258,7 @@ def main():
             forced = []
             for prompt, ref in zip(prompts, references):
                 samples = []
-                for step in range(4):
+                for step in range(args.max_new_tokens):
                     out = engine.generate(
                         input_ids=prompt + ref["tokens"][:step],
                         sampling_params={
@@ -284,7 +305,7 @@ def main():
                     input_ids=prompts,
                     sampling_params={
                         "temperature": 0,
-                        "max_new_tokens": 4,
+                        "max_new_tokens": args.max_new_tokens,
                         "ignore_eos": True,
                     },
                     return_logprob=True,
