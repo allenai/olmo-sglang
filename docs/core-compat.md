@@ -74,3 +74,19 @@ uses identical token IDs across checkpoints. It reports generated-token
 probability differences and Core/serving likelihood-ratio distributions, together
 with timed generation throughput. It does not establish learning quality or
 complete responses when a fixed token budget is used.
+
+## Graph-compatible rounding mode
+
+`OLMO_SGLANG_CORE_COMPAT=rounding` is a separate, experimental middle option.
+It preserves BF16 SiLU/multiply/down-projection rounding, uses FP32 expert
+weighting/reduction, and selects Core-style FP32 RMS norms. It retains ordinary
+SGLang weight layouts, full attention and KDA dispatch, and allows decode graphs.
+Dense/shared MLPs already use separate BF16 activation operations. This mode
+does not use Core grouped GEMMs or the full reference's attention/KDA changes.
+
+Use TP1/EP1, unquantized BF16 and the Triton MoE backend. Alternative quantization,
+interleaved gate/up storage, speculation and the full mode's unsupported model
+geometries are rejected. The implementation calls the pinned SGLang alignment
+and GEMM interfaces directly; it does not install activation hooks or change
+global kernels. Standard HF and fused weight publication retain existing storage.
+It is off by default and requires its own workload/graph qualification.

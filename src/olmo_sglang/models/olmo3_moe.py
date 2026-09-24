@@ -53,6 +53,7 @@ from olmo_sglang.attention import (
 from olmo_sglang.config import validate_olmo3_moe_config
 from olmo_sglang.core_attention import CoreRadixAttention
 from olmo_sglang.kda.layer import Olmo3MoeKDAAttention
+from olmo_sglang.rounding import RoundingExperts
 from olmo_sglang.routing import fp32_router_logits, olmo3_moe_topk
 
 logger = logging.getLogger(__name__)
@@ -218,7 +219,13 @@ class Olmo3MoeSparseMLP(nn.Module):
                 prefix=add_prefix("latent_up_proj", prefix),
             )
 
-        expert_class = core_compat.CoreExperts if core_compat.enabled() else FusedMoE
+        expert_class = (
+            core_compat.CoreExperts
+            if core_compat.enabled()
+            else RoundingExperts
+            if core_compat.rounding_enabled()
+            else FusedMoE
+        )
         self.experts = expert_class(
             num_experts=self.num_experts,
             hidden_size=expert_hidden_size,
@@ -358,10 +365,10 @@ class Olmo3MoeAttention(nn.Module):
                 )
         else:
             self.q_norm = (
-                core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm
+                core_compat.CoreRMSNorm if core_compat.norms_enabled() else RMSNorm
             )(self.head_dim, eps=config.rms_norm_eps)
             self.k_norm = (
-                core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm
+                core_compat.CoreRMSNorm if core_compat.norms_enabled() else RMSNorm
             )(self.head_dim, eps=config.rms_norm_eps)
         if self.scalable_softmax:
             self.ssmax_scale = nn.Parameter(torch.ones(self.num_heads))
@@ -518,24 +525,24 @@ class Olmo3MoeDecoderLayer(nn.Module):
             )
         )
         self.pre_attention_layernorm = (
-            (core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm)(
+            (core_compat.CoreRMSNorm if core_compat.norms_enabled() else RMSNorm)(
                 config.hidden_size, eps=config.rms_norm_eps
             )
             if config.use_peri_ln
             else None
         )
         self.post_attention_layernorm = (
-            core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm
+            core_compat.CoreRMSNorm if core_compat.norms_enabled() else RMSNorm
         )(config.hidden_size, eps=config.rms_norm_eps)
         self.pre_feedforward_layernorm = (
-            (core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm)(
+            (core_compat.CoreRMSNorm if core_compat.norms_enabled() else RMSNorm)(
                 config.hidden_size, eps=config.rms_norm_eps
             )
             if config.use_peri_ln
             else None
         )
         self.post_feedforward_layernorm = (
-            core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm
+            core_compat.CoreRMSNorm if core_compat.norms_enabled() else RMSNorm
         )(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
@@ -581,7 +588,7 @@ class Olmo3MoeModel(nn.Module):
             prefix=add_prefix("embed_tokens", prefix),
         )
         self.embed_norm = (
-            (core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm)(
+            (core_compat.CoreRMSNorm if core_compat.norms_enabled() else RMSNorm)(
                 config.hidden_size, eps=config.rms_norm_eps
             )
             if getattr(config, "embed_norm", False)
@@ -595,9 +602,9 @@ class Olmo3MoeModel(nn.Module):
             ),
             prefix=add_prefix("layers", prefix),
         )
-        self.norm = (core_compat.CoreRMSNorm if core_compat.enabled() else RMSNorm)(
-            config.hidden_size, eps=config.rms_norm_eps
-        )
+        self.norm = (
+            core_compat.CoreRMSNorm if core_compat.norms_enabled() else RMSNorm
+        )(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
         self,

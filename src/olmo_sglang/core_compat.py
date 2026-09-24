@@ -12,27 +12,49 @@ from torch.nn import functional as F
 ENVIRONMENT_VARIABLE = "OLMO_SGLANG_CORE_COMPAT"
 
 
-def enabled() -> bool:
+def mode() -> str:
     value = os.environ.get(ENVIRONMENT_VARIABLE, "0").lower().strip()
-    if value not in {"0", "1", "false", "true", "off", "on", ""}:
-        raise ValueError(f"Invalid {ENVIRONMENT_VARIABLE} value: {value!r}")
-    return value in {"1", "true", "on"}
+    if value in {"1", "true", "on", "full"}:
+        return "full"
+    if value in {"0", "false", "off", ""}:
+        return "off"
+    if value == "rounding":
+        return "rounding"
+    raise ValueError(f"Invalid {ENVIRONMENT_VARIABLE} value: {value!r}")
+
+
+def enabled() -> bool:
+    """Whether to use the full, eager Core reference path."""
+    return mode() == "full"
+
+
+def rounding_enabled() -> bool:
+    return mode() == "rounding"
+
+
+def norms_enabled() -> bool:
+    return mode() != "off"
 
 
 def validate_runtime(config, parallel, args, quant_config):
-    if not enabled():
+    if mode() == "off":
         return
     if parallel.tp_size != 1 or parallel.moe_ep_size != 1:
         raise ValueError("Core compatibility currently requires TP1 and EP1")
     if quant_config is not None or args.dtype not in {"bfloat16", "bf16"}:
         raise ValueError("Core compatibility currently requires unquantized BF16")
-    if (
+    if enabled() and (
         args.cuda_graph_backend_decode != "disabled"
         or args.cuda_graph_backend_prefill != "disabled"
     ):
         raise ValueError(
             "Core compatibility requires disabled prefill and decode CUDA graphs"
         )
+    if rounding_enabled() and getattr(args, "moe_runner_backend", "auto") not in {
+        "auto",
+        "triton",
+    }:
+        raise ValueError("Rounding compatibility requires the Triton MoE backend")
     if getattr(args, "speculative_algorithm", None):
         raise ValueError("Core compatibility does not support speculative decoding")
     if getattr(config, "attention_bias", False) or getattr(config, "use_rope", True):

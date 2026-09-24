@@ -70,6 +70,26 @@ def test_runtime_rejects_unsupported_execution(monkeypatch):
         setattr(obj, key, old)
 
 
+def test_rounding_mode_keeps_graphs_and_default_attention(monkeypatch):
+    monkeypatch.setenv(core_compat.ENVIRONMENT_VARIABLE, "rounding")
+    assert core_compat.rounding_enabled()
+    assert core_compat.norms_enabled()
+    assert not core_compat.enabled()
+    config = SimpleNamespace(
+        attention_bias=False, use_rope=False, layer_types=["linear_attention"]
+    )
+    parallel = SimpleNamespace(tp_size=1, moe_ep_size=1)
+    args = SimpleNamespace(
+        dtype="bfloat16",
+        cuda_graph_backend_decode="full",
+        cuda_graph_backend_prefill="disabled",
+    )
+    core_compat.validate_runtime(config, parallel, args, None)
+    parallel.tp_size = 2
+    with pytest.raises(ValueError, match="TP1"):
+        core_compat.validate_runtime(config, parallel, args, None)
+
+
 def test_dense_layout_and_publication_preserve_used_storage():
     torch.manual_seed(42)
     model = core_compat.CoreDenseMLP(16, 32).bfloat16()
