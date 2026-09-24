@@ -50,6 +50,13 @@ def test_fused_rounding_has_explicit_tensor_reference(monkeypatch):
     assert core_compat.fused_rounding_enabled()
     monkeypatch.setenv("OLMO_SGLANG_ROUNDING_KERNELS", "torch")
     assert not core_compat.fused_rounding_enabled()
+    assert not core_compat.fused_rounding_enabled("norms")
+    monkeypatch.setenv("OLMO_SGLANG_ROUNDING_KERNELS", "moe")
+    assert core_compat.fused_rounding_enabled()
+    assert not core_compat.fused_rounding_enabled("norms")
+    monkeypatch.setenv("OLMO_SGLANG_ROUNDING_KERNELS", "norms")
+    assert not core_compat.fused_rounding_enabled()
+    assert core_compat.fused_rounding_enabled("norms")
     monkeypatch.setenv("OLMO_SGLANG_ROUNDING_KERNELS", "typo")
     with pytest.raises(ValueError, match="ROUNDING_KERNELS"):
         core_compat.fused_rounding_enabled()

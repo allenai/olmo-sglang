@@ -98,3 +98,5 @@ operations as a diagnostic control; the default is `fused`. This setting does
 not change ordinary serving or the full reference mode. Fusion reduces launches
 and temporary buffers, but FP32 reduction association can still differ. Keep
 probability comparisons separate from performance measurements.
+The diagnostic values `moe` and `norms` fuse only that component, allowing its
+effect on performance and full-model probabilities to be isolated.

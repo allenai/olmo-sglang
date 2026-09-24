@@ -126,7 +126,9 @@ def rounded_experts(value, w13, w2, weights, routes, *, fused=None):
 
 class RoundingRMSNorm(core_compat.CoreRMSNorm):
     def forward(self, value):
-        if value.dtype == torch.bfloat16 and core_compat.fused_rounding_enabled():
+        if value.dtype == torch.bfloat16 and core_compat.fused_rounding_enabled(
+            "norms"
+        ):
             return rounding_kernels.rms_norm(value, self.weight, self.variance_epsilon)
         return super().forward(value)
 
