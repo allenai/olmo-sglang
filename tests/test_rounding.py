@@ -15,10 +15,15 @@ def test_rounding_graph_replays_changed_routes_inputs_and_weights(tokens, monkey
     rounded_experts = import_module("olmo_sglang.rounding").rounded_experts
     runtime = import_module("sglang.srt.runtime_context")
     server_args = import_module("sglang.srt.server_args")
-    monkeypatch.setattr(runtime, "_CONTEXT", runtime.RuntimeContext())
-    runtime.publish(
-        server_args.ServerArgs(model_path="unused", device="cuda"), role="test"
+    monkeypatch.setattr(
+        runtime, "_CONTEXT", runtime.RuntimeContext(parallel=runtime.ParallelContext())
     )
+    # Only dataclass defaults are needed by the kernel tuner. Engine startup's
+    # post-init resolves a checkpoint and hardware, neither part of this test.
+    with monkeypatch.context() as setup:
+        setup.setattr(server_args.ServerArgs, "__post_init__", lambda self: None)
+        args = server_args.ServerArgs(model_path="unused", device="cuda")
+    runtime.publish(args, role="test")
     torch.manual_seed(841)
     device = "cuda"
     x = torch.randn(tokens, 64, device=device, dtype=torch.bfloat16) * 0.1
