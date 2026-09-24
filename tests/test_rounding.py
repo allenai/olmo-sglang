@@ -11,8 +11,14 @@ from olmo_sglang import core_compat
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 @pytest.mark.parametrize("tokens", [1, 4, 81])
-def test_rounding_graph_replays_changed_routes_inputs_and_weights(tokens):
+def test_rounding_graph_replays_changed_routes_inputs_and_weights(tokens, monkeypatch):
     rounded_experts = import_module("olmo_sglang.rounding").rounded_experts
+    runtime = import_module("sglang.srt.runtime_context")
+    server_args = import_module("sglang.srt.server_args")
+    monkeypatch.setattr(runtime, "_CONTEXT", runtime.RuntimeContext())
+    runtime.publish(
+        server_args.ServerArgs(model_path="unused", device="cuda"), role="test"
+    )
     torch.manual_seed(841)
     device = "cuda"
     x = torch.randn(tokens, 64, device=device, dtype=torch.bfloat16) * 0.1
