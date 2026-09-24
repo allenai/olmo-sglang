@@ -58,7 +58,20 @@ _ROUNDING_PROFILE = {
 }
 
 
-def default_rounding_supported(config, parallel, args, quant_config) -> bool:
+def _is_bf16(args, dtype):
+    # SGLang keeps the requested ServerArgs dtype (often "auto"). The loader
+    # constructs modules under set_default_torch_dtype(model_config.dtype).
+    # Prefer that resolved dtype supplied by the model entry point.
+    return (args.dtype if dtype is None else dtype) in {
+        "bfloat16",
+        "bf16",
+        torch.bfloat16,
+    }
+
+
+def default_rounding_supported(
+    config, parallel, args, quant_config, *, dtype=None
+) -> bool:
     """Conservative automatic selection; explicit modes still use runtime guards."""
     missing = object()
     return (
@@ -71,7 +84,7 @@ def default_rounding_supported(config, parallel, args, quant_config) -> bool:
         == tuple(["linear_attention"] * 7 + ["full_attention"]) * 2
         and parallel.tp_size == parallel.moe_ep_size == 1
         and quant_config is None
-        and args.dtype in {"bfloat16", "bf16"}
+        and _is_bf16(args, dtype)
         and args.cuda_graph_backend_decode in {"disabled", "full"}
         and args.cuda_graph_backend_prefill == "disabled"
         and getattr(args, "moe_runner_backend", "auto") in {"auto", "triton"}
@@ -81,7 +94,7 @@ def default_rounding_supported(config, parallel, args, quant_config) -> bool:
 
 
 @contextmanager
-def model_mode(config, parallel, args, quant_config):
+def model_mode(config, parallel, args, quant_config, *, dtype=None):
     """Resolve auto only while building this model; never mutate worker env vars.
 
     Modules retain their selected implementations after construction. Full-mode
@@ -90,12 +103,12 @@ def model_mode(config, parallel, args, quant_config):
     """
     selected = (
         "rounding"
-        if default_rounding_supported(config, parallel, args, quant_config)
+        if default_rounding_supported(config, parallel, args, quant_config, dtype=dtype)
         else "off"
     )
     token = _AUTO_MODE.set(selected)
     try:
-        validate_runtime(config, parallel, args, quant_config)
+        validate_runtime(config, parallel, args, quant_config, dtype=dtype)
         yield mode()
     finally:
         _AUTO_MODE.reset(token)
@@ -135,12 +148,12 @@ def fused_rounding_enabled(component: str = "moe") -> bool:
     return value == "fused" or value == component
 
 
-def validate_runtime(config, parallel, args, quant_config):
+def validate_runtime(config, parallel, args, quant_config, *, dtype=None):
     if mode() == "off":
         return
     if parallel.tp_size != 1 or parallel.moe_ep_size != 1:
         raise ValueError("Core compatibility currently requires TP1 and EP1")
-    if quant_config is not None or args.dtype not in {"bfloat16", "bf16"}:
+    if quant_config is not None or not _is_bf16(args, dtype):
         raise ValueError("Core compatibility currently requires unquantized BF16")
     if enabled() and (
         args.cuda_graph_backend_decode != "disabled"

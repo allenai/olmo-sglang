@@ -328,6 +328,8 @@ def test_model_constructs_selected_norms_without_leaking_auto(
         "Olmo3MoeModel",
         lambda *a, **kw: model_module._rms_norm_class()(1024, eps=1e-6),
     )
+    monkeypatch.setattr(torch, "get_default_dtype", lambda: torch.bfloat16)
+    args.dtype = "auto"
     model = model_module.Olmo3MoeForCausalLM(config)
     assert model.core_compat_mode == "rounding"
     assert isinstance(model.model, model_module.RoundingRMSNorm)
@@ -337,3 +339,27 @@ def test_model_constructs_selected_norms_without_leaking_auto(
     assert other.core_compat_mode == "off"
     assert isinstance(other.model, model_module.RMSNorm)
     assert isinstance(model.model, model_module.RoundingRMSNorm)
+
+
+@pytest.mark.parametrize(
+    "dtype,expected",
+    [(torch.bfloat16, "rounding"), (torch.float16, "off"), (torch.float32, "off")],
+)
+@pytest.mark.parametrize("requested", ["auto", "bfloat16"])
+def test_auto_uses_loader_resolved_dtype(
+    monkeypatch, hero_runtime, dtype, expected, requested
+):
+    monkeypatch.delenv(core_compat.ENVIRONMENT_VARIABLE, raising=False)
+    hero_runtime[2].dtype = requested
+    with core_compat.model_mode(*hero_runtime, dtype=dtype) as selected:
+        assert selected == expected
+
+
+def test_explicit_rounding_accepts_auto_resolved_to_bf16(monkeypatch, hero_runtime):
+    monkeypatch.setenv(core_compat.ENVIRONMENT_VARIABLE, "rounding")
+    hero_runtime[2].dtype = "auto"
+    with core_compat.model_mode(*hero_runtime, dtype=torch.bfloat16) as selected:
+        assert selected == "rounding"
+    with pytest.raises(ValueError, match="unquantized BF16"):
+        with core_compat.model_mode(*hero_runtime, dtype=torch.float16):
+            pass

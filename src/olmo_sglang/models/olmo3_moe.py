@@ -631,7 +631,11 @@ class Olmo3MoeForCausalLM(nn.Module):
     ) -> None:
         super().__init__()
         with core_compat.model_mode(
-            config, get_parallel(), get_server_args(), quant_config
+            config,
+            get_parallel(),
+            get_server_args(),
+            quant_config,
+            dtype=torch.get_default_dtype(),
         ) as selected_mode:
             self.core_compat_mode = selected_mode
             logger.info("Olmo Core compatibility mode: %s", selected_mode)

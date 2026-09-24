@@ -10,7 +10,8 @@ Automatic selection covers the measured 12.5B hero profile: hidden size 1024,
 16 layers (14 KDA, full attention at layers 7 and 15), 512 experts/top-16,
 latent width 512, expert/shared width 1024, dense width 8192 and its norm/gating
 configuration. `_ROUNDING_PROFILE` in `core_compat.py` is the exact contract.
-It requires unquantized BF16, TP1/EP1, `auto`/`triton` MoE backend, full or disabled
+It requires unquantized BF16 (the loader-resolved dtype, including `--dtype auto`
+when the checkpoint resolves to BF16), TP1/EP1, `auto`/`triton` MoE backend, full or disabled
 decode graphs, disabled prefill graphs, no speculation and no `torch.compile`.
 Checkpoint paths and EMO ancestry do not determine selection. Other configurations
 keep ordinary arithmetic. Selection is scoped to construction so later models do
