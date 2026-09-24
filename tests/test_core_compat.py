@@ -45,6 +45,16 @@ def test_default_off_and_invalid_setting(monkeypatch):
         core_compat.enabled()
 
 
+def test_fused_rounding_has_explicit_tensor_reference(monkeypatch):
+    monkeypatch.delenv("OLMO_SGLANG_ROUNDING_KERNELS", raising=False)
+    assert core_compat.fused_rounding_enabled()
+    monkeypatch.setenv("OLMO_SGLANG_ROUNDING_KERNELS", "torch")
+    assert not core_compat.fused_rounding_enabled()
+    monkeypatch.setenv("OLMO_SGLANG_ROUNDING_KERNELS", "typo")
+    with pytest.raises(ValueError, match="ROUNDING_KERNELS"):
+        core_compat.fused_rounding_enabled()
+
+
 def test_runtime_rejects_unsupported_execution(monkeypatch):
     monkeypatch.setenv(core_compat.ENVIRONMENT_VARIABLE, "1")
     config = SimpleNamespace(

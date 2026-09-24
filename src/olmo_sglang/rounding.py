@@ -11,8 +11,12 @@ from sglang.srt.layers.moe.moe_runner.triton_utils import fused_moe
 from torch.nn import functional as F
 from triton import language as tl
 
+from olmo_sglang import core_compat, rounding_kernels
 
-def rounded_experts(value, w13, w2, weights, routes):
+
+def rounded_experts(value, w13, w2, weights, routes, *, fused=None):
+    if fused is None:
+        fused = core_compat.fused_rounding_enabled()
     if (
         value.dtype != torch.bfloat16
         or w13.dtype != value.dtype
@@ -78,10 +82,11 @@ def rounded_experts(value, w13, w2, weights, routes):
         b_use_tma=up_tma,
         filter_expert=False,
     )
-    # Separate PyTorch kernels retain BF16 SiLU and multiplication boundaries
-    # during CUDA graph capture/replay, without compiler fusion removing them.
-    gate, up = gate_up.chunk(2, dim=-1)
-    activated = F.silu(gate) * up
+    if fused:
+        activated = rounding_kernels.silu_mul(gate_up)
+    else:
+        gate, up = gate_up.chunk(2, dim=-1)
+        activated = F.silu(gate) * up
     outputs = torch.empty(
         (tokens, topk, w2.shape[1]), device=value.device, dtype=value.dtype
     )
@@ -114,7 +119,16 @@ def rounded_experts(value, w13, w2, weights, routes):
     )
     # Down GEMM writes BF16 *before* weighting. Keep weighting and reduction in
     # FP32, then round once, as in Core. Captured tensors use normal graph pools.
+    if fused:
+        return rounding_kernels.weighted_sum(outputs, weights)
     return (outputs.float() * weights.float().unsqueeze(-1)).sum(1).to(value.dtype)
+
+
+class RoundingRMSNorm(core_compat.CoreRMSNorm):
+    def forward(self, value):
+        if value.dtype == torch.bfloat16 and core_compat.fused_rounding_enabled():
+            return rounding_kernels.rms_norm(value, self.weight, self.variance_epsilon)
+        return super().forward(value)
 
 
 class RoundingExperts(FusedMoE):

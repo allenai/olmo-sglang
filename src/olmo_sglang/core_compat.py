@@ -36,6 +36,14 @@ def norms_enabled() -> bool:
     return mode() != "off"
 
 
+def fused_rounding_enabled() -> bool:
+    """Keep the original tensor implementation as a diagnostic control."""
+    value = os.environ.get("OLMO_SGLANG_ROUNDING_KERNELS", "fused").lower().strip()
+    if value not in {"fused", "torch"}:
+        raise ValueError(f"Invalid OLMO_SGLANG_ROUNDING_KERNELS value: {value!r}")
+    return value == "fused"
+
+
 def validate_runtime(config, parallel, args, quant_config):
     if mode() == "off":
         return

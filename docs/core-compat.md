@@ -90,3 +90,11 @@ geometries are rejected. The implementation calls the pinned SGLang alignment
 and GEMM interfaces directly; it does not install activation hooks or change
 global kernels. Standard HF and fused weight publication retain existing storage.
 It is off by default and requires its own workload/graph qualification.
+
+Within rounding mode, small Triton kernels fuse activation, FP32 weighted
+reduction and RMS normalization while retaining explicit BF16 boundaries.
+`OLMO_SGLANG_ROUNDING_KERNELS=torch` selects the original separate tensor
+operations as a diagnostic control; the default is `fused`. This setting does
+not change ordinary serving or the full reference mode. Fusion reduces launches
+and temporary buffers, but FP32 reduction association can still differ. Keep
+probability comparisons separate from performance measurements.
