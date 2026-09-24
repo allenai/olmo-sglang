@@ -27,6 +27,8 @@ from sglang.srt.layers.attention.linear.kernels.kernel_backend import (
     LinearAttnKernelBase,
 )
 
+from olmo_sglang import core_compat
+
 EXPECTED_FLA_VERSION = "0.5.2"
 _OLMO_MODEL_ARCHITECTURE = "Olmo3MoeForCausalLM"
 LOGGER = logging.getLogger(__name__)
@@ -347,6 +349,7 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
     def __init__(self, *, allow_neg_eigval: bool) -> None:
         require_fla_0_5_2()
         self.allow_neg_eigval = allow_neg_eigval
+        self.core_compat = core_compat.enabled()
 
     @staticmethod
     def _gather_initial_state(
@@ -397,6 +400,7 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         from fla.ops.kda import chunk_kda
 
         initial_state, valid = self._gather_initial_state(ssm_states, cache_indices)
+        core_layout = getattr(self, "core_compat", False)
         raw_gate = raw_gate.reshape(q.shape[0], q.shape[1], v.shape[2], q.shape[-1])
         beta = raw_beta.reshape(q.shape[0], q.shape[1], v.shape[2]).float().sigmoid()
         if self.allow_neg_eigval:
@@ -405,22 +409,37 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
             torch.inference_mode() if return_intermediate_states else nullcontext()
         )
         with inference_context:
-            result = chunk_kda(
-                q=q,
-                k=k,
-                v=v,
-                g=raw_gate,
-                beta=beta,
-                A_log=A_log.reshape(-1),
-                dt_bias=dt_bias.reshape(-1),
-                initial_state=initial_state,
-                output_final_state=True,
-                use_qk_l2norm_in_kernel=True,
-                use_gate_in_kernel=True,
-                return_intermediate_states=return_intermediate_states,
-                transpose_state_layout=True,
-                cu_seqlens=query_start_loc,
-            )
+            if core_layout:
+                result = self._core_chunks(
+                    chunk_kda,
+                    q,
+                    k,
+                    v,
+                    raw_gate,
+                    beta,
+                    A_log,
+                    dt_bias,
+                    initial_state,
+                    query_start_loc,
+                    return_intermediate_states,
+                )
+            else:
+                result = chunk_kda(
+                    q=q,
+                    k=k,
+                    v=v,
+                    g=raw_gate,
+                    beta=beta,
+                    A_log=A_log.reshape(-1),
+                    dt_bias=dt_bias.reshape(-1),
+                    initial_state=initial_state,
+                    output_final_state=True,
+                    use_qk_l2norm_in_kernel=True,
+                    use_gate_in_kernel=True,
+                    return_intermediate_states=return_intermediate_states,
+                    transpose_state_layout=True,
+                    cu_seqlens=query_start_loc,
+                )
         output, final_state = result[:2]
         self._commit_final_state(ssm_states, cache_indices, final_state, valid)
         if not valid.all():
@@ -431,6 +450,61 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         if return_intermediate_states:
             return output, result[2]
         return output
+
+    @staticmethod
+    def _core_chunks(
+        chunk_kda,
+        q,
+        k,
+        v,
+        gate,
+        beta,
+        a_log,
+        dt_bias,
+        initial_state,
+        query_start_loc,
+        intermediate,
+    ):
+        """Use Core's single-sequence [K,V] dispatch, preserving SGLang caches."""
+        outputs, states, snapshots = [], [], []
+        for index, (start, end) in enumerate(pairwise(query_start_loc.tolist())):
+            state = initial_state[index : index + 1].transpose(-1, -2).contiguous()
+            if start == end:
+                states.append(initial_state[index : index + 1])
+                continue
+            # Fresh requests have no prior state in Core's forward. Cached prefix
+            # extensions retain their state; no populated cache is discarded.
+            prior = state if torch.count_nonzero(state).item() else None
+            result = chunk_kda(
+                q=q[:, start:end].contiguous(),
+                k=k[:, start:end].contiguous(),
+                v=v[:, start:end].contiguous(),
+                g=gate[:, start:end].contiguous(),
+                beta=beta[:, start:end].contiguous(),
+                A_log=a_log.reshape(-1),
+                dt_bias=dt_bias.reshape(-1),
+                initial_state=prior,
+                output_final_state=True,
+                use_qk_l2norm_in_kernel=True,
+                use_gate_in_kernel=True,
+                return_intermediate_states=intermediate,
+                transpose_state_layout=False,
+                cu_seqlens=None,
+            )
+            outputs.append(result[0])
+            states.append(result[1].transpose(-1, -2).contiguous())
+            if intermediate:
+                snapshots.append(result[2].transpose(-1, -2).contiguous())
+        output = torch.cat(outputs, dim=1) if outputs else torch.empty_like(v)
+        final = torch.cat(states, dim=0) if states else initial_state
+        if intermediate:
+            history = (
+                torch.cat(snapshots, dim=1)
+                if snapshots
+                else initial_state[:0].unsqueeze(0)
+            )
+            return output, final, history
+        return output, final
 
     def decode(
         self,

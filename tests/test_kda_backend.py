@@ -189,16 +189,22 @@ def test_fla_constexpr_shim_rewrites_on_first_launcher_call(monkeypatch):
     )
 
 
-def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch):
+@pytest.mark.parametrize("core_layout", [False, True])
+def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch, core_layout):
     calls = []
     inference_modes = []
-    intermediate_state = torch.zeros(1, 1, 1, 3, 2)
+    intermediate_state = torch.arange(6).reshape(1, 1, 1, 3, 2).float()
 
     def chunk_kda(**kwargs):
         calls.append(kwargs)
         inference_modes.append(torch.is_inference_mode_enabled())
         output = torch.zeros_like(kwargs["v"])
-        return output, kwargs["initial_state"] + 1, intermediate_state
+        intermediate = (
+            intermediate_state.transpose(-1, -2).contiguous()
+            if core_layout
+            else intermediate_state
+        )
+        return output, kwargs["initial_state"] + 1, intermediate
 
     fla = ModuleType("fla")
     ops = ModuleType("fla.ops")
@@ -215,10 +221,12 @@ def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch):
 
     kernel = object.__new__(kda_backend.OlmoFLAKDAKernel)
     kernel.allow_neg_eigval = True
+    kernel.core_compat = core_layout
     q = torch.zeros(1, 2, 1, 2)
     v = torch.zeros(1, 2, 1, 3)
     raw_beta = torch.tensor([[[0.0], [1.0]]])
-    state_pool = torch.zeros(1, 1, 3, 2)
+    state_pool = torch.arange(6).reshape(1, 1, 3, 2).float()
+    expected_state = state_pool + 1
 
     result = kernel.extend(
         q,
@@ -236,14 +244,63 @@ def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch):
 
     expected_beta = raw_beta.float().sigmoid() * 2.0
     torch.testing.assert_close(calls[0]["beta"], expected_beta)
-    assert calls[0]["transpose_state_layout"] is True
+    assert calls[0]["transpose_state_layout"] is not core_layout
     assert "state_v_first" not in calls[0]
     assert "use_beta_sigmoid_in_kernel" not in calls[0]
     assert "allow_neg_eigval" not in calls[0]
-    assert calls[0]["initial_state"].shape == (1, 1, 3, 2)
+    assert calls[0]["initial_state"].shape == (
+        (1, 1, 2, 3) if core_layout else (1, 1, 3, 2)
+    )
     assert inference_modes == [True]
-    assert result[1] is intermediate_state
-    torch.testing.assert_close(state_pool, torch.ones_like(state_pool))
+    torch.testing.assert_close(result[1], intermediate_state, rtol=0, atol=0)
+    torch.testing.assert_close(state_pool, expected_state, rtol=0, atol=0)
+
+
+def test_core_kda_chunks_keep_requests_and_cache_states_separate():
+    calls = []
+    q = torch.arange(10).reshape(1, 5, 1, 2).float()
+    v = torch.zeros(1, 5, 1, 3)
+    states = torch.arange(18).reshape(3, 1, 3, 2).float()
+    states[0].zero_()
+    original = states.clone()
+
+    def chunk(**kwargs):
+        calls.append(kwargs)
+        state = torch.full((1, 1, 2, 3), float(len(calls)))
+        return (
+            torch.full_like(kwargs["v"], float(len(calls))),
+            state,
+            state.unsqueeze(1),
+        )
+
+    output, final, history = kda_backend.OlmoFLAKDAKernel._core_chunks(
+        chunk,
+        q,
+        q,
+        v,
+        q,
+        torch.zeros(1, 5, 1),
+        torch.zeros(1),
+        torch.zeros(2),
+        states,
+        torch.tensor([0, 2, 2, 5]),
+        True,
+    )
+    assert len(calls) == 2
+    assert calls[0]["initial_state"] is None
+    torch.testing.assert_close(calls[1]["initial_state"], states[2:3].transpose(-1, -2))
+    assert all(
+        c["cu_seqlens"] is None and c["transpose_state_layout"] is False for c in calls
+    )
+    torch.testing.assert_close(calls[0]["q"], q[:, :2])
+    torch.testing.assert_close(calls[1]["q"], q[:, 2:])
+    torch.testing.assert_close(output[:, :2], torch.ones_like(v[:, :2]))
+    torch.testing.assert_close(output[:, 2:], torch.full_like(v[:, 2:], 2))
+    torch.testing.assert_close(final[0], torch.ones_like(states[0]))
+    torch.testing.assert_close(final[1], states[1])
+    torch.testing.assert_close(final[2], torch.full_like(states[2], 2))
+    assert history.shape == (1, 2, 1, 3, 2)
+    torch.testing.assert_close(states, original, rtol=0, atol=0)
 
 
 def test_kda_target_verify_snapshots_ragged_chains_without_committing():

@@ -39,7 +39,10 @@ an older image. The trainer remains OLMo-core.
   repetition. The compatible attention layer uses SGLang's request table and KV
   cache for packed requests, prefix chunks and decode, independent of the engine's
   normal full-attention kernel selection.
-- KDA continues to use the existing FLA integration and recurrent cache.
+- KDA prefill uses Core's per-sequence FLA dispatch and `[K,V]` state orientation.
+  Final and intermediate states are converted back to SGLang's `[V,K]` cache
+  format. Populated prefix states are preserved; packed recurrent decode remains
+  available. Both dispatch and orientation matter for long-prefix fidelity.
 
 The mode requires the compatible OLMo-core runtime. It currently rejects TP/EP
 larger than one, quantization, non-BF16 precision, CUDA graphs, speculative
