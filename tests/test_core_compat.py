@@ -9,6 +9,32 @@ from torch.nn import functional as F
 from olmo_sglang import core_compat
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+def test_permutation_orders_nondefault_stream_and_growing_workspace():
+    utils = pytest.importorskip("olmo_core.nn.moe.utils")
+    stream = torch.cuda.Stream()
+    for tokens in [16, 1, 81, 4, 257, 1, 83]:
+        with torch.cuda.stream(stream):
+            # Delay input production so a default-stream sort cannot safely race it.
+            torch.cuda._sleep(2_000_000)
+            value = (
+                torch.arange(tokens * 128, device="cuda")
+                .reshape(tokens, 128)
+                .bfloat16()
+            )
+            routes = torch.randint(
+                0, 512, (tokens, 16), device="cuda", dtype=torch.int32
+            )
+            actual, reverse = core_compat.permute_on_default_stream(
+                utils.moe_permute_no_compile, value, routes
+            )
+            order = routes.flatten().argsort(stable=True) // routes.shape[1]
+            expected = value.index_select(0, order)
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+            assert reverse.numel() == routes.numel()
+    stream.synchronize()
+
+
 def test_default_off_and_invalid_setting(monkeypatch):
     monkeypatch.delenv(core_compat.ENVIRONMENT_VARIABLE, raising=False)
     assert not core_compat.enabled()

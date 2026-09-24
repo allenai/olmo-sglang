@@ -157,12 +157,7 @@ class CoreExperts(nn.Module):
         if not value.numel():
             return value
         routes = topk.topk_ids.int()
-        permuted, reverse = self.permute(
-            inp=value,
-            routing_map=routes,
-            num_out_tokens=routes.numel(),
-            map_type="index",
-        )
+        permuted, reverse = permute_on_default_stream(self.permute, value, routes)
         counts = torch.bincount(routes.reshape(-1), minlength=self.num_experts).to(
             torch.int32
         )
@@ -178,3 +173,30 @@ class CoreExperts(nn.Module):
             map_type="index",
             merging_probs=topk.topk_weights,
         )
+
+
+def permute_on_default_stream(permute, value, routes):
+    """Order TE's default-stream sort with SGLang's model execution stream.
+
+    TE 2.17's index permutation launches CUB SortPairs without a stream argument,
+    then launches its gather on the current stream. Run both on the default
+    stream, with dependencies and allocator lifetimes covering the handoff.
+    """
+    current = torch.cuda.current_stream(value.device)
+    default = torch.cuda.default_stream(value.device)
+    if current != default:
+        default.wait_stream(current)
+        value.record_stream(default)
+        routes.record_stream(default)
+    with torch.cuda.stream(default):
+        permuted, reverse = permute(
+            inp=value,
+            routing_map=routes,
+            num_out_tokens=routes.numel(),
+            map_type="index",
+        )
+    if current != default:
+        current.wait_stream(default)
+        permuted.record_stream(current)
+        reverse.record_stream(current)
+    return permuted, reverse

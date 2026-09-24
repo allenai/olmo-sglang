@@ -100,3 +100,6 @@ PYTHONPATH=src .venv/bin/python -m pytest tests -q
 ```
 
 Licensed under the [Apache License 2.0](LICENSE).
+
+An optional, default-off [Core-compatible execution mode](docs/core-compat.md)
+provides a TP1 BF16 numerical reference for Core-based RL serving.
