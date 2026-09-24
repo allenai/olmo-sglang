@@ -96,7 +96,14 @@ reduction and RMS normalization while retaining explicit BF16 boundaries.
 `OLMO_SGLANG_ROUNDING_KERNELS=torch` selects the original separate tensor
 operations as a diagnostic control; the default is `fused`. This setting does
 not change ordinary serving or the full reference mode. Fusion reduces launches
-and temporary buffers, but FP32 reduction association can still differ. Keep
-probability comparisons separate from performance measurements.
+and temporary buffers. The fused reductions also follow the pinned PyTorch CUDA
+accumulation grouping: four independent accumulators followed by their ordered
+combination, with the norm's cross-warp fold before its intra-warp reduction.
+This matters because rare changed BF16 outputs can alter full-model routing.
+Top-k above 16 and norm widths above 4096 (or non-vectorizable widths at least
+128) use the tensor fallback. The exact-equality tests and workload comparisons
+must be rerun when changing the runtime; this is not a promise of bitwise Core
+agreement for arbitrary cached decoding. Keep probability comparisons separate
+from performance measurements.
 The diagnostic values `moe` and `norms` fuse only that component, allowing its
 effect on performance and full-model probabilities to be isolated.
