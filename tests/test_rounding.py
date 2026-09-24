@@ -108,21 +108,21 @@ def test_fused_weighting_keeps_fp32_products_until_final_cast(topk):
     exact = products.double().sum(1)
     bound = exact.abs() * 0.00391 + 2e-6 * products.abs().sum(1)
     assert ((actual.double() - exact).abs() <= bound).all()
-    assert (actual == reference).float().mean() > 0.999
+    torch.testing.assert_close(actual, reference, rtol=0, atol=0)
     premature = products.bfloat16().float().sum(1).bfloat16()
     assert (actual != premature).any()
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 @pytest.mark.parametrize("width", [64, 128, 1024, 1536, 2048])
-def test_fused_norm_keeps_weight_multiply_in_fp32(width):
+@pytest.mark.parametrize("tokens", [1, 4, 16, 81, 673])
+def test_fused_norm_keeps_weight_multiply_in_fp32(width, tokens):
     kernels = import_module("olmo_sglang.rounding_kernels")
     torch.manual_seed(703)
-    value = torch.randn(3, 27, width, device="cuda", dtype=torch.bfloat16)
+    value = torch.randn(tokens, width, device="cuda", dtype=torch.bfloat16)
     norm = core_compat.CoreRMSNorm(width, 1e-6).cuda().bfloat16()
     with torch.no_grad():
         norm.weight.uniform_(0.5, 1.5)
         expected = norm(value)
         actual = kernels.rms_norm(value, norm.weight, norm.variance_epsilon)
-    torch.testing.assert_close(actual, expected, rtol=0.008, atol=0)
-    assert (actual == expected).float().mean() > 0.999
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
