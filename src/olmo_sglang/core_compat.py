@@ -1,19 +1,110 @@
-"""Opt-in Core arithmetic with persistent, publication-safe weight layouts."""
+"""Scoped Core arithmetic with persistent, publication-safe weight layouts."""
 
 from __future__ import annotations
 
 import importlib
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 import torch
 from torch import nn
 from torch.nn import functional as F
 
 ENVIRONMENT_VARIABLE = "OLMO_SGLANG_CORE_COMPAT"
+_AUTO_MODE = ContextVar("olmo_core_compat_auto_mode", default="off")
+
+# The measured 12.5B hero family, independent of checkpoint path and EMO ancestry.
+# Expanding this profile requires graph/refresh and probability/performance checks.
+_ROUNDING_PROFILE = {
+    "hidden_size": 1024,
+    "attention_hidden_size": 1024,
+    "num_hidden_layers": 16,
+    "num_attention_heads": 8,
+    "num_key_value_heads": 4,
+    "head_dim": 128,
+    "n_routed_experts": 512,
+    "num_experts_per_tok": 16,
+    "moe_intermediate_size": 1024,
+    "latent_moe_dim": 512,
+    "latent_moe_bias": False,
+    "latent_moe_up_proj_input_norm": False,
+    "shared_expert_intermediate_size": 1024,
+    "dense_mlp_intermediate_size": 8192,
+    "dense_layers_use_shared_expert": True,
+    "hidden_act": "silu",
+    "gating_function": "softmax",
+    "normalize_expert_weights": 1.0,
+    "restore_weight_scale": True,
+    "original_num_experts_per_tok": None,
+    "embed_norm": True,
+    "embed_scale": 32.0,
+    "scalable_softmax": True,
+    "rms_norm_eps": 1e-6,
+    "linear_norm_eps": 1e-5,
+    "use_peri_ln": True,
+    "use_head_qk_norm": True,
+    "qk_norm_per_head_gains": True,
+    "attention_bias": False,
+    "use_rope": False,
+    "attention_gate_type": "elementwise",
+    "attention_gate_full_precision": True,
+    "linear_num_key_heads": 8,
+    "linear_num_value_heads": 8,
+    "linear_key_head_dim": 128,
+    "linear_value_head_dim": 256,
+    "linear_conv_kernel_dim": 4,
+    "linear_allow_neg_eigval": True,
+}
+
+
+def default_rounding_supported(config, parallel, args, quant_config) -> bool:
+    """Conservative automatic selection; explicit modes still use runtime guards."""
+    missing = object()
+    return (
+        all(
+            getattr(config, key, missing) == value
+            for key, value in _ROUNDING_PROFILE.items()
+        )
+        and tuple(getattr(config, "dense_layers_indices", ())) == (0,)
+        and tuple(getattr(config, "layer_types", ()))
+        == tuple(["linear_attention"] * 7 + ["full_attention"]) * 2
+        and parallel.tp_size == parallel.moe_ep_size == 1
+        and quant_config is None
+        and args.dtype in {"bfloat16", "bf16"}
+        and args.cuda_graph_backend_decode in {"disabled", "full"}
+        and args.cuda_graph_backend_prefill == "disabled"
+        and getattr(args, "moe_runner_backend", "auto") in {"auto", "triton"}
+        and not getattr(args, "speculative_algorithm", None)
+        and not getattr(args, "enable_torch_compile", False)
+    )
+
+
+@contextmanager
+def model_mode(config, parallel, args, quant_config):
+    """Resolve auto only while building this model; never mutate worker env vars.
+
+    Modules retain their selected implementations after construction. Full-mode
+    attention backends still read the explicit environment setting independently.
+    Resetting the context prevents a later/different model inheriting this choice.
+    """
+    selected = (
+        "rounding"
+        if default_rounding_supported(config, parallel, args, quant_config)
+        else "off"
+    )
+    token = _AUTO_MODE.set(selected)
+    try:
+        validate_runtime(config, parallel, args, quant_config)
+        yield mode()
+    finally:
+        _AUTO_MODE.reset(token)
 
 
 def mode() -> str:
-    value = os.environ.get(ENVIRONMENT_VARIABLE, "0").lower().strip()
+    value = os.environ.get(ENVIRONMENT_VARIABLE, "auto").lower().strip()
+    if value == "auto":
+        return _AUTO_MODE.get()
     if value in {"1", "true", "on", "full"}:
         return "full"
     if value in {"0", "false", "off", ""}:

@@ -630,21 +630,23 @@ class Olmo3MoeForCausalLM(nn.Module):
         prefix: str = "",
     ) -> None:
         super().__init__()
-        core_compat.validate_runtime(
+        with core_compat.model_mode(
             config, get_parallel(), get_server_args(), quant_config
-        )
-        self.config = config
-        self.quant_config = quant_config
-        self.model = Olmo3MoeModel(
-            config, quant_config, prefix=add_prefix("model", prefix)
-        )
-        self.lm_head = ParallelLMHead(
-            config.vocab_size,
-            config.hidden_size,
-            quant_config=quant_config,
-            prefix=add_prefix("lm_head", prefix),
-        )
-        self.logits_processor = LogitsProcessor(config)
+        ) as selected_mode:
+            self.core_compat_mode = selected_mode
+            logger.info("Olmo Core compatibility mode: %s", selected_mode)
+            self.config = config
+            self.quant_config = quant_config
+            self.model = Olmo3MoeModel(
+                config, quant_config, prefix=add_prefix("model", prefix)
+            )
+            self.lm_head = ParallelLMHead(
+                config.vocab_size,
+                config.hidden_size,
+                quant_config=quant_config,
+                prefix=add_prefix("lm_head", prefix),
+            )
+            self.logits_processor = LogitsProcessor(config)
 
     def get_input_embeddings(self) -> nn.Module:
         return self.model.embed_tokens

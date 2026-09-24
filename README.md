@@ -101,5 +101,6 @@ PYTHONPATH=src .venv/bin/python -m pytest tests -q
 
 Licensed under the [Apache License 2.0](LICENSE).
 
-An optional, default-off [Core-compatible execution mode](docs/core-compat.md)
-provides a TP1 BF16 numerical reference for Core-based RL serving.
+[Core-compatible execution modes](docs/core-compat.md) select fused rounding by
+default for qualified hero checkpoints with TP1/EP1 BF16 serving. Explicit opt-out,
+tensor controls and the slower full numerical reference remain available.

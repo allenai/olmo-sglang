@@ -1,7 +1,37 @@
-# Optional Core-compatible execution
+# Core-compatible execution modes
+
+With `OLMO_SGLANG_CORE_COMPAT` unset (or `auto`), the adapter selects fused
+rounding for the qualified hero family and ordinary serving otherwise. Explicit
+`0` / `off` opts out; `rounding` forces the rounding path; `1` / `full` selects
+the slow eager numerical reference. The resolved mode is logged at model
+construction and retained as `model.core_compat_mode`.
+
+Automatic selection covers the measured 12.5B hero profile: hidden size 1024,
+16 layers (14 KDA, full attention at layers 7 and 15), 512 experts/top-16,
+latent width 512, expert/shared width 1024, dense width 8192 and its norm/gating
+configuration. `_ROUNDING_PROFILE` in `core_compat.py` is the exact contract.
+It requires unquantized BF16, TP1/EP1, `auto`/`triton` MoE backend, full or disabled
+decode graphs, disabled prefill graphs, no speculation and no `torch.compile`.
+Checkpoint paths and EMO ancestry do not determine selection. Other configurations
+keep ordinary arithmetic. Selection is scoped to construction so later models do
+not inherit it. Graph settings and attention backends are not changed.
+
+Fused rounding retained essentially ordinary throughput on H100: 993 → 1,010
+(base, batch 4), 988 → 1,000 (EMO SFT), 983 → 1,004 (non-EMO SFT), and
+2,486 → 2,513 tokens/s (EMO, batch 16). Treat these as similar speed.
+Fused/tensor rounding matched exactly on 73,728 generated tokens and 8,192
+fixed-prefix scores. Agreement against actual Core remains mixed; this is not
+proof of exact Core parity or improved RL learning. The default preserves the
+intended BF16 boundaries without the earlier tensor control's 24–25% slowdown.
+See the [Open Instruct report](https://github.com/allenai/open-instruct/blob/3ac5615fb/docs/miles/measurements/fused-rounding-20260923.md)
+for reproducible workload, source/image pins, ablations and probability tables.
+That report's image predates automatic selection and requires explicit `rounding`.
+Requalify other hardware and updated runtimes; the measured GPU was H100.
+
+## Full eager reference
 
 Set `OLMO_SGLANG_CORE_COMPAT=1` before constructing the SGLang engine to select
-Core-compatible Olmo execution. The default is **off**. This is separate from
+the full Core reference. This slower mode remains opt-in. This is separate from
 `OLMO_HF_MOE_CORE_REFERENCE`, which only affects the exported Transformers model.
 
 ```python
@@ -77,7 +107,8 @@ complete responses when a fixed token budget is used.
 
 ## Graph-compatible rounding mode
 
-`OLMO_SGLANG_CORE_COMPAT=rounding` is a separate, experimental middle option.
+`OLMO_SGLANG_CORE_COMPAT=rounding` explicitly selects the rounding option,
+which is also the automatic default for the qualified profile above.
 It preserves BF16 SiLU/multiply/down-projection rounding, uses FP32 expert
 weighting/reduction, and selects Core-style FP32 RMS norms. It retains ordinary
 SGLang weight layouts, full attention and KDA dispatch, and allows decode graphs.
@@ -89,7 +120,8 @@ interleaved gate/up storage, speculation and the full mode's unsupported model
 geometries are rejected. The implementation calls the pinned SGLang alignment
 and GEMM interfaces directly; it does not install activation hooks or change
 global kernels. Standard HF and fused weight publication retain existing storage.
-It is off by default and requires its own workload/graph qualification.
+Explicit selection outside the automatic profile requires its own workload/graph
+qualification.
 
 Within rounding mode, small Triton kernels fuse activation, FP32 weighted
 reduction and RMS normalization while retaining explicit BF16 boundaries.
