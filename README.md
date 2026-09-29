@@ -1,9 +1,14 @@
 # olmo-sglang
 
+> **Development status:** This repository supports OLMo model architectures under
+> active development. No compatible model checkpoints are publicly available yet.
+> It is intended for development and collaboration; synthetic fixtures are
+> provided for testing.
+
 `olmo-sglang` adds native `Olmo3MoeForCausalLM` support to
 [SGLang](https://github.com/sgl-project/sglang) without patching the SGLang
-checkout. It can be used directly for inference or as the rollout runtime in
-[`olmo-miles`](https://github.com/allenai/olmo-miles).
+checkout. It can be used directly for inference or as a rollout runtime in
+training applications.
 
 Install the extension into the [tested SGLang runtime](docs/compatibility.md).
 The pinned source revision is `3145136dcd1238754e0ea2b2ffd546532119c71c`.
@@ -25,15 +30,20 @@ execution paths.
 
 FLA is optional for attention-only checkpoints. KDA serving is GPU-oriented.
 
-## Quick start
+## Development setup
 
-Create an environment containing this package and a compatible SGLang checkout:
+Use Python 3.12 and a GPU environment matching the
+[tested runtime](docs/compatibility.md#integration-baseline). For CPU-only
+development, follow the [local checks](docs/development.md#local-checks).
+Install this package alongside the pinned SGLang checkout:
 
 ```bash
+git clone https://github.com/sgl-project/sglang.git
+git -C sglang checkout 3145136dcd1238754e0ea2b2ffd546532119c71c
 git clone https://github.com/allenai/olmo-sglang.git
 cd olmo-sglang
 uv venv --python 3.12
-uv pip install --python .venv/bin/python -e /path/to/sglang/python
+uv pip install --python .venv/bin/python -e ../sglang/python
 uv pip install --python .venv/bin/python -e .
 ```
 
@@ -44,7 +54,12 @@ FLA release:
 uv pip install --python .venv/bin/python flash-linear-attention==0.5.2
 ```
 
-Start an OpenAI-compatible SGLang server:
+To exercise the integration without model weights, use the
+[synthetic checkpoint walkthrough](docs/validation.md#deterministic-kda-fixture).
+These fixtures test execution and do not produce meaningful language.
+
+If you have a compatible development checkpoint, start an OpenAI-compatible
+SGLang server:
 
 ```bash
 SGLANG_EXTERNAL_MODEL_PACKAGE=olmo_sglang.models \
@@ -99,8 +114,9 @@ PYTHONPATH=src .venv/bin/python -m pytest tests -q
 .venv/bin/ruff check src tests tools examples
 ```
 
-Licensed under the [Apache License 2.0](LICENSE).
+Licensed under the [Apache License 2.0](LICENSE), with MIT-licensed adaptations
+listed in [third-party notices](THIRD_PARTY_NOTICES.md).
 
 [Core-compatible execution modes](docs/core-compat.md) select fused rounding by
-default for qualified hero checkpoints with TP1/EP1 BF16 serving. Explicit opt-out,
-tensor controls and the slower full numerical reference remain available.
+default for supported model configurations with TP1/EP1 BF16 serving. Explicit
+opt-out, tensor controls and the slower full numerical reference remain available.

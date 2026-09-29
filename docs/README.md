@@ -10,7 +10,7 @@ This directory holds the detailed operating and implementation contract for
 | [Design](design.md) | Modifying model execution, KDA state, caching, or speculative verification |
 | [Validation](validation.md) | Reproducing a correctness gate or using a synthetic checkpoint |
 | [Attention](attention.md) | Loading and validating per-head Q/K gains and scalable softmax |
-| [Numerical findings](numerical-findings.md) | Understanding recorded probability mismatches and SwiGLU rounding differences |
+| [Numerical behavior](numerical-findings.md) | Understanding probability sensitivity and SwiGLU rounding differences |
 | [Status](status.md) | Deciding whether a feature is ready for an experiment or production |
 | [Development](development.md) | Navigating the source tree and running repository checks |
 

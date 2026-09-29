@@ -1,5 +1,10 @@
 # Getting started
 
+Compatible model checkpoints are under active development and are not publicly
+available yet. Start with the [synthetic fixtures](validation.md#deterministic-kda-fixture)
+to test the integration. The serving examples below assume access to a compatible
+development checkpoint; their model paths are placeholders.
+
 `olmo-sglang` is an out-of-tree model implementation loaded by SGLang. It is
 independent of `olmo-miles`: applications can embed an engine or start SGLang's
 HTTP server directly. It does not install SGLang, choose a GPU runtime, or
@@ -7,14 +12,18 @@ convert a training checkpoint into Hugging Face layout.
 
 ## Install
 
-Start with a compatible SGLang source checkout. The exact runtime tested by the
-OLMo integration is recorded in [compatibility](compatibility.md).
+Use Python 3.12 and a CUDA-capable GPU environment matching the
+[tested runtime](compatibility.md#integration-baseline). CPU-only contributors
+can use the [local checks](development.md#local-checks) without installing SGLang.
+Check out the pinned SGLang revision alongside this repository:
 
 ```bash
+git clone https://github.com/sgl-project/sglang.git
+git -C sglang checkout 3145136dcd1238754e0ea2b2ffd546532119c71c
 git clone https://github.com/allenai/olmo-sglang.git
 cd olmo-sglang
 uv venv --python 3.12
-uv pip install --python .venv/bin/python -e /path/to/sglang/python
+uv pip install --python .venv/bin/python -e ../sglang/python
 uv pip install --python .venv/bin/python -e .
 ```
 

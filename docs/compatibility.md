@@ -69,50 +69,22 @@ representations.
   performance depends on a useful trained draft source and has not been
   established as a serving default.
 
-## OLMo-MILES qualification limits
+## Integration boundaries
 
-OLMo-MILES owns its runtime pins, checkpoint precision and supported trainer
-combinations. It stores router weights in BF16 and performs routing math in
-FP32. Its trainer guards require TP=PP=CP=1; standalone inference TP evidence
-does not qualify trainer TP or other RL topologies.
+This package implements model execution and standalone weight updates. The
+calling application owns request admission, policy-version tracking, coordinated
+updates across replicas, recovery, and trainer topology. Inference TP support
+does not qualify a particular distributed training configuration.
 
-Live rollout routing replay requires OLMo-MILES' managed MILES router: the pinned
-compiled SGLang router drops the expert-capture request field. The managed router
-preserves expert metadata and request seeds, and uses independent health
-connections. Replay passed all 19 routed layers through forward/recomputation
-and weight refresh on the basic EP2 and production EP8 trainers. Measurements
-use fixed-length batches, eager serving, disabled prefix caching, context 2,560
-and response cap 512. Graph/cached replay and longer replay contexts require
-separate qualification. See the [integration topology guide](https://github.com/allenai/olmo-miles/blob/main/docs/topology-and-length-guide.md#async-replay-coverage).
+Require successful weight updates on every replica and invalidate cached state
+before admitting requests for the new policy. Validate cancellation, worker
+replacement, realistic request lengths, and concurrency in the deployment that
+will use the package.
 
-Basic EP2 async/replay completed 45 ordinary updates, default-cadence saving,
-evaluation and verified export. Fresh-process restart and stalled-generation
-replacement passed separately on EP2, with current actor weights published before
-replacement samples were admitted. Production EP8 passed six ordinary updates
-and checkpoint/export inspection; EP8 restart and replacement remain unexercised.
-Its worker hung querying Ray after the head exited. OLMo-MILES corrected that
-shell cleanup and verified it with real Ray in two CPU containers; the full GPU
-run was not repeated. Recovery is opt-in; failed in-flight publication remains
-terminal rather than providing transactional retry. See the
-[async/replay and health guide](https://github.com/allenai/olmo-miles/blob/main/docs/disaggregated-rollout.md).
-
-The observed post-refresh serving stall was active NVCC/ptxas compilation of
-FlashInfer's lazy sampling module. OLMo-MILES warms filtered sampling before
-managed admission and cache flush, keeping cold compilation inside startup
-budgets. Operational health timeouts are unchanged. These integration adapters
-do not change this package's runtime defaults or qualify other downstream users.
-
-Deterministic serving has narrow guarantees. Serial/eager/cache-disabled requests
-repeated within tested processes and controlled fresh processes on one B300.
-Independent FLA retuning on paired B300s changed kernel choices and produced raw
-logit divergence despite identical weights; matched tuning caches repeated
-exactly in the controlled pair. A single-GPU L2-normalization fixture isolated a
-BF16 output difference from alternative FP32 reduction grouping, but that
-primitive is not proven to explain all full-model divergence. Concurrent
-graph/cache serving failed repeatability. Batch invariance and exact trainer
-log-probability agreement remain unqualified. See the
-[reproducibility guide](https://github.com/allenai/olmo-miles/blob/main/docs/comparison-runs.md#serving-reproducibility)
-and its controlled KDA evidence.
+Exact repeatability across independent kernel tuning, batching, or graph/cache
+settings is not guaranteed. Validate the actual checkpoint and runtime when
+reference-equivalent probabilities are required; see
+[numerical behavior](numerical-findings.md).
 
 ## Dependency policy
 

@@ -18,6 +18,9 @@
 # derives from Flash Linear Attention (Copyright 2023-2025 Songlin Yang and
 # Yu Zhang). The overlay keeps the kernel local so the pinned SGLang checkout
 # remains unmodified.
+# Original source notice: Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
+# See THIRD_PARTY_NOTICES.md and LICENSES/FLA-MIT.txt for provenance and the
+# retained MIT permission and warranty notice.
 
 from typing import Any
 
