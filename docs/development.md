@@ -13,16 +13,18 @@ tests/                    portable and CUDA-gated tests
 
 Files under `examples/` should demonstrate an ordinary user workflow. Synthetic
 checkpoint construction and implementation diagnostics belong under `tools/`.
-The source distribution includes both directories and the detailed docs through
-`MANIFEST.in`; the runtime wheel contains only the importable package and CLI
-entry points.
+The source distribution includes both directories, the detailed docs, tests,
+and pinned requirements through `MANIFEST.in`. The runtime wheel contains the
+importable package and CLI entry points. Both distributions include the project
+license and third-party notices.
 
 Keep generated measurement JSON, logs, and activation dumps with run artifacts
 outside the source tree or under Git-ignored `runs/`. Commit the checks that
 produce them and concise summaries of the findings, source/image identities,
 commands, thresholds, and limitations. Numerical fixtures belong in the tree
-when a regression test consumes them. Historical reports can be linked at an
-immutable Git commit rather than carried forward in the maintained tree.
+when a regression test consumes them. Keep checkpoint-specific reports with the
+run artifacts; public documentation should describe reproducible checks and
+their limits.
 
 ## Local checks
 
@@ -42,9 +44,10 @@ Direct test and lint dependencies are pinned in `requirements/`; update those
 pins together with a passing CPU run. The runtime package deliberately has no
 mandatory dependencies, so installing it does not replace a serving stack.
 
-`--cpu-only` excludes six modules that import SGLang internals during collection:
-EP diagnostics, KDA backend, KDA radix cache, KDA tensor parallelism, and
-speculative KDA kernels, plus model weight targets. The remaining suite covers
+`--cpu-only` excludes seven modules that import SGLang internals during collection:
+Core-compatible attention, EP diagnostics, KDA backend, KDA radix cache, KDA
+tensor parallelism, speculative KDA kernels, and model weight targets. The
+remaining suite covers
 configuration, registration, activations, attention, routing, reference models,
 compatibility metadata, serving diagnostics, and validation
 harness control flow without SGLang or CUDA installed. New test modules are
@@ -77,6 +80,11 @@ and runtime integration. GitHub Actions does not yet run this suite or the
 whole-engine GPU validation commands.
 
 ## Change discipline
+
+Submit changes to `main` through a pull request. The branch must be up to date,
+Ruff and CPU tests must pass, and review conversations must be resolved before
+merging. A separate approving review is not required. These protections also
+apply to administrators; force pushes and deletion of `main` are blocked.
 
 Changes to SGLang imports, KDA state shape, model weight mapping, or worker
 registration should be tested against the exact runtime described in

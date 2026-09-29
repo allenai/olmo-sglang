@@ -1,33 +1,24 @@
 # Core-compatible execution modes
 
 With `OLMO_SGLANG_CORE_COMPAT` unset (or `auto`), the adapter selects fused
-rounding for the qualified hero family and ordinary serving otherwise. Explicit
-`0` / `off` opts out; `rounding` forces the rounding path; `1` / `full` selects
+rounding for a validated model configuration and ordinary serving otherwise.
+Explicit `0` / `off` opts out; `rounding` forces the rounding path; `1` / `full` selects
 the slow eager numerical reference. The resolved mode is logged at model
 construction and retained as `model.core_compat_mode`.
 
-Automatic selection covers the measured 12.5B hero profile: hidden size 1024,
-16 layers (14 KDA, full attention at layers 7 and 15), 512 experts/top-16,
-latent width 512, expert/shared width 1024, dense width 8192 and its norm/gating
-configuration. `_ROUNDING_PROFILE` in `core_compat.py` is the exact contract.
+Automatic selection checks model geometry, normalization, and gating against
+`_ROUNDING_PROFILE` in `core_compat.py`.
 It requires unquantized BF16 (the loader-resolved dtype, including `--dtype auto`
 when the checkpoint resolves to BF16), TP1/EP1, `auto`/`triton` MoE backend, full or disabled
 decode graphs, disabled prefill graphs, no speculation and no `torch.compile`.
-Checkpoint paths and EMO ancestry do not determine selection. Other configurations
-keep ordinary arithmetic. Selection is scoped to construction so later models do
-not inherit it. Graph settings and attention backends are not changed.
+Checkpoint paths do not determine selection. Other configurations keep ordinary
+arithmetic. Selection is scoped to construction so later models do not inherit
+it. Graph settings and attention backends are not changed.
 
-Fused rounding retained essentially ordinary throughput on H100: 993 → 1,010
-(base, batch 4), 988 → 1,000 (EMO SFT), 983 → 1,004 (non-EMO SFT), and
-2,486 → 2,513 tokens/s (EMO, batch 16). Treat these as similar speed.
-Fused/tensor rounding matched exactly on 73,728 generated tokens and 8,192
-fixed-prefix scores. Agreement against actual Core remains mixed; this is not
-proof of exact Core parity or improved RL learning. The default preserves the
-intended BF16 boundaries without the earlier tensor control's 24–25% slowdown.
-See the [Open Instruct report](https://github.com/allenai/open-instruct/blob/3ac5615fb/docs/miles/measurements/fused-rounding-20260923.md)
-for reproducible workload, source/image pins, ablations and probability tables.
-That report's image predates automatic selection and requires explicit `rounding`.
-Requalify other hardware and updated runtimes; the measured GPU was H100.
+Fused rounding preserves the intended BF16 boundaries while reducing kernel
+launches. It does not guarantee exact OLMo-core parity or improved training
+quality. Validate numerical behavior and throughput on the intended hardware,
+checkpoint, and runtime.
 
 ## Full eager reference
 
@@ -44,7 +35,7 @@ from olmo_sglang import register
 os.environ["OLMO_SGLANG_CORE_COMPAT"] = "1"
 register()
 engine = sglang.Engine(
-    model_path="/path/to/hero/hf",
+    model_path="/path/to/olmo-hf-checkpoint",
     trust_remote_code=True,
     dtype="bfloat16",
     tp_size=1,
@@ -99,12 +90,6 @@ for every batch shape or cached decode. Different GEMM shapes and chunk versus
 recurrent KDA execution can still differ. Compare actual Core scores with serving
 behavior probabilities on the same tokens. Measure throughput after warm-up and
 record graph, batching, chunking, context and sampling settings.
-
-The accompanying Open Instruct benchmark freezes real RL prompt identities and
-uses identical token IDs across checkpoints. It reports generated-token
-probability differences and Core/serving likelihood-ratio distributions, together
-with timed generation throughput. It does not establish learning quality or
-complete responses when a fixed token budget is used.
 
 ## Graph-compatible rounding mode
 
