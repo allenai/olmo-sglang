@@ -11,12 +11,46 @@ SUPPORTED_ATTENTION_TYPES = frozenset(
 )
 
 
+def _validate_emo_config(config: Any) -> None:
+    mode = getattr(config, "emo_routing_mode", None)
+    if mode not in (None, "full_pool"):
+        raise NotImplementedError(f"Unsupported EMO routing mode: {mode!r}")
+    fields = (
+        "emo_min_document_expert_pool",
+        "emo_max_document_expert_pool",
+        "emo_eval_document_expert_pool",
+        "emo_eos_token_id",
+    )
+    values = {name: getattr(config, name, None) for name in fields}
+    if all(value is None for value in values.values()):
+        return
+    for name, value in values.items():
+        if type(value) is not int or value < (0 if name == "emo_eos_token_id" else 1):
+            raise ValueError(f"EMO requires an explicit valid integer {name}")
+    experts = getattr(config, "n_routed_experts", None)
+    top_k = getattr(config, "num_experts_per_tok", None)
+    if type(experts) is not int or type(top_k) is not int or not 0 < top_k <= experts:
+        raise ValueError("EMO requires 0 < num_experts_per_tok <= n_routed_experts")
+    if not top_k <= values[fields[0]] <= values[fields[1]] <= experts:
+        raise ValueError(
+            "EMO requires top_k <= min_document_expert_pool <= max_pool <= num_experts"
+        )
+    if values[fields[2]] != experts:
+        raise NotImplementedError(
+            "EMO serving supports full-pool routing only: "
+            "emo_eval_document_expert_pool must equal n_routed_experts. "
+            "Select full-pool execution explicitly during RL preparation."
+        )
+
+
 def validate_olmo3_moe_config(config: Any) -> None:
     """Validate the currently executable native SGLang subset.
 
     The native model accepts both softmax-attention and OLMo KDA layers. KDA
     execution additionally requires flash-linear-attention 0.5.2 at runtime.
     """
+
+    _validate_emo_config(config)
 
     if getattr(config, "qk_norm_per_head_gains", False) and not getattr(
         config, "use_head_qk_norm", False
