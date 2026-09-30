@@ -30,6 +30,72 @@ def test_accepts_attention_reference_config():
     validate_olmo3_moe_config(_config())
 
 
+def _emo_config(**overrides):
+    values = dict(
+        n_routed_experts=8,
+        num_experts_per_tok=2,
+        emo_min_document_expert_pool=2,
+        emo_max_document_expert_pool=4,
+        emo_eval_document_expert_pool=8,
+        emo_eos_token_id=0,
+    )
+    values.update(overrides)
+    return _config(**values)
+
+
+def test_accepts_full_pool_emo_with_restricted_training_metadata():
+    validate_olmo3_moe_config(_emo_config())
+    validate_olmo3_moe_config(_emo_config(emo_routing_mode="full_pool"))
+
+
+def test_rejects_unknown_emo_execution_mode():
+    with pytest.raises(NotImplementedError, match="EMO routing mode"):
+        validate_olmo3_moe_config(_emo_config(emo_routing_mode="document_pool"))
+
+
+def test_accepts_null_emo_ancestry_metadata():
+    validate_olmo3_moe_config(
+        _config(
+            emo_min_document_expert_pool=None,
+            emo_max_document_expert_pool=None,
+            emo_eval_document_expert_pool=None,
+            emo_eos_token_id=None,
+        )
+    )
+
+
+@pytest.mark.parametrize("pool", [1, 2, 4, 9])
+def test_rejects_emo_pool_that_cannot_be_served(pool):
+    with pytest.raises(NotImplementedError, match="full-pool"):
+        validate_olmo3_moe_config(_emo_config(emo_eval_document_expert_pool=pool))
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "emo_min_document_expert_pool",
+        "emo_max_document_expert_pool",
+        "emo_eval_document_expert_pool",
+        "emo_eos_token_id",
+    ],
+)
+@pytest.mark.parametrize("value", [None, True, 1.5, "2", -1])
+def test_rejects_incomplete_or_malformed_emo(field, value):
+    with pytest.raises(ValueError, match=field):
+        validate_olmo3_moe_config(_emo_config(**{field: value}))
+
+
+@pytest.mark.parametrize("minimum,maximum", [(1, 4), (4, 2), (2, 9)])
+def test_rejects_invalid_emo_training_range(minimum, maximum):
+    with pytest.raises(ValueError, match="min_document_expert_pool"):
+        validate_olmo3_moe_config(
+            _emo_config(
+                emo_min_document_expert_pool=minimum,
+                emo_max_document_expert_pool=maximum,
+            )
+        )
+
+
 def test_rejects_full_projection_qk_norm_instead_of_using_headwise_math():
     with pytest.raises(NotImplementedError, match="use_head_qk_norm=True"):
         validate_olmo3_moe_config(_config(use_head_qk_norm=False))

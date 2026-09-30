@@ -579,6 +579,12 @@ class Olmo3MoeModel(nn.Module):
     ) -> None:
         super().__init__()
         validate_olmo3_moe_config(config)
+        if getattr(config, "emo_eval_document_expert_pool", None) is not None:
+            logger.info(
+                "EMO full-pool inference: %s routed experts, top-%s, FP32 softmax router, L1 weights",
+                config.n_routed_experts,
+                config.num_experts_per_tok,
+            )
         self.config = config
         self.embed_tokens = VocabParallelEmbedding(
             config.vocab_size,
