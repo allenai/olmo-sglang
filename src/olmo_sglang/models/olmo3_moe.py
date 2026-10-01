@@ -237,6 +237,9 @@ class Olmo3MoeSparseMLP(nn.Module):
             hidden_size=expert_hidden_size,
             intermediate_size=config.moe_intermediate_size,
             reduce_results=True,
+            # The shared expert and the decoder residual both still need the
+            # original hidden states after routed experts finish.
+            inplace=False,
             quant_config=quant_config,
             layer_id=layer_id,
             prefix=add_prefix("experts", prefix),
