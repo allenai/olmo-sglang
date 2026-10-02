@@ -120,3 +120,10 @@ listed in [third-party notices](THIRD_PARTY_NOTICES.md).
 [Core-compatible execution modes](docs/core-compat.md) select fused rounding by
 default for supported model configurations with TP1/EP1 BF16 serving. Explicit
 opt-out, tensor controls and the slower full numerical reference remain available.
+
+## Contact and contributions
+
+Please use [GitHub issues](https://github.com/allenai/olmo-sglang/issues) for
+public questions and bug reports. Pull requests with fixes, improvements, and
+documentation updates are welcome; please contribute a pull request when you can.
+For other inquiries, contact [robertb@allenai.org](mailto:robertb@allenai.org).
