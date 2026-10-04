@@ -117,6 +117,11 @@ PYTHONPATH=src .venv/bin/python -m pytest tests -q
 Licensed under the [Apache License 2.0](LICENSE), with MIT-licensed adaptations
 listed in [third-party notices](THIRD_PARTY_NOTICES.md).
 
+This is a source-code release. Runtime dependencies, including NVIDIA packages
+and native libraries, are installed separately and are not bundled. We do not
+publish container images as part of this release. The third-party notices
+describe the included FLA adaptation.
+
 [Core-compatible execution modes](docs/core-compat.md) select fused rounding by
 default for supported model configurations with TP1/EP1 BF16 serving. Explicit
 opt-out, tensor controls and the slower full numerical reference remain available.

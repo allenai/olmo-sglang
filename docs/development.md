@@ -16,7 +16,8 @@ checkpoint construction and implementation diagnostics belong under `tools/`.
 The source distribution includes both directories, the detailed docs, tests,
 and pinned requirements through `MANIFEST.in`. The runtime wheel contains the
 importable package and CLI entry points. Both distributions include the project
-license and third-party notices.
+license and third-party notices, including the FLA MIT license text. Neither
+artifact bundles runtime dependency packages or compiled third-party libraries.
 
 Keep generated measurement JSON, logs, and activation dumps with run artifacts
 outside the source tree or under Git-ignored `runs/`. Commit the checks that
