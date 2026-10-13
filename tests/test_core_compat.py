@@ -393,3 +393,53 @@ def test_explicit_rounding_accepts_auto_resolved_to_bf16(monkeypatch, hero_runti
     with pytest.raises(ValueError, match="unquantized BF16"):
         with core_compat.model_mode(*hero_runtime, dtype=torch.float16):
             pass
+
+
+@pytest.mark.parametrize("setting", ["off", "0", "full"])
+def test_required_rounding_rejects_mode_override(monkeypatch, hero_runtime, setting):
+    monkeypatch.setenv("OLMO_SGLANG_REQUIRE_CORE_ROUNDING", "1")
+    monkeypatch.delenv("OLMO_SGLANG_DIAGNOSTIC_OVERRIDE_REASON", raising=False)
+    monkeypatch.setenv(core_compat.ENVIRONMENT_VARIABLE, setting)
+    with pytest.raises(ValueError, match="Core rounding is required"):
+        with core_compat.model_mode(*hero_runtime):
+            pytest.fail("Constructed a model with the wrong arithmetic")
+
+
+@pytest.mark.parametrize(
+    "key,value", [("cuda_graph_backend_prefill", "full"), ("dtype", "float16")]
+)
+def test_required_rounding_rejects_unsupported_runtime(
+    monkeypatch, hero_runtime, key, value
+):
+    monkeypatch.setenv("OLMO_SGLANG_REQUIRE_CORE_ROUNDING", "1")
+    monkeypatch.delenv("OLMO_SGLANG_DIAGNOSTIC_OVERRIDE_REASON", raising=False)
+    monkeypatch.setenv(core_compat.ENVIRONMENT_VARIABLE, "rounding")
+    setattr(hero_runtime[2], key, value)
+    with pytest.raises(ValueError, match="Refusing to fall back"):
+        with core_compat.model_mode(*hero_runtime):
+            pytest.fail("Constructed an unsupported model")
+
+
+def test_required_rounding_accepts_legacy_flags_and_records_diagnostic(
+    monkeypatch, hero_runtime
+):
+    monkeypatch.setenv("OLMO_SGLANG_REQUIRE_CORE_ROUNDING", "1")
+    monkeypatch.delenv("OLMO_SGLANG_DIAGNOSTIC_OVERRIDE_REASON", raising=False)
+    monkeypatch.setenv(core_compat.ENVIRONMENT_VARIABLE, "rounding")
+    args = hero_runtime[2]
+    args.cuda_graph_backend_decode = args.cuda_graph_backend_prefill = None
+    args.cuda_graph_config = SimpleNamespace(
+        decode=SimpleNamespace(backend="disabled"),
+        prefill=SimpleNamespace(backend="disabled"),
+    )
+    with core_compat.model_mode(*hero_runtime) as selected:
+        assert selected == "rounding"
+    monkeypatch.setenv(core_compat.ENVIRONMENT_VARIABLE, "off")
+    monkeypatch.setenv(
+        "OLMO_SGLANG_DIAGNOSTIC_OVERRIDE_REASON", "matched arithmetic ablation"
+    )
+    with pytest.warns(
+        RuntimeWarning, match="matched arithmetic ablation; selected mode=off"
+    ):
+        with core_compat.model_mode(*hero_runtime) as selected:
+            assert selected == "off"

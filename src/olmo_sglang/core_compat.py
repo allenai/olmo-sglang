@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import warnings
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -116,10 +117,50 @@ def model_mode(config, parallel, args, quant_config, *, dtype=None):
     )
     token = _AUTO_MODE.set(selected)
     try:
+        validate_required_rounding(config, parallel, args, quant_config, dtype=dtype)
         validate_runtime(config, parallel, args, quant_config, dtype=dtype)
         yield mode()
     finally:
         _AUTO_MODE.reset(token)
+
+
+def validate_required_rounding(config, parallel, args, quant_config, *, dtype=None):
+    """Enforce a caller's arithmetic contract against the selected runtime."""
+    required = os.environ.get("OLMO_SGLANG_REQUIRE_CORE_ROUNDING", "0")
+    if required not in {"0", "1"}:
+        raise ValueError("OLMO_SGLANG_REQUIRE_CORE_ROUNDING must be 0 or 1")
+    if required == "0":
+        return
+    reason = os.environ.get("OLMO_SGLANG_DIAGNOSTIC_OVERRIDE_REASON", "").strip()
+    if reason:
+        warnings.warn(
+            f"Core rounding requirement bypassed for diagnostic: {reason}; selected mode={mode()}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return
+    if mode() != "rounding":
+        raise ValueError(
+            f"Core rounding is required, but selected mode={mode()}. "
+            "Set OLMO_SGLANG_CORE_COMPAT=rounding. Diagnostic exceptions require "
+            "OLMO_SGLANG_DIAGNOSTIC_OVERRIDE_REASON."
+        )
+    if not default_rounding_supported(
+        config, parallel, args, quant_config, dtype=dtype
+    ):
+        raise ValueError(
+            "Required Core rounding is unsupported for this model/runtime: "
+            f"dtype={dtype if dtype is not None else args.dtype}, "
+            f"TP={parallel.tp_size}, EP={parallel.moe_ep_size}, "
+            f"decode_graph={_graph_backend(args, 'decode')}, "
+            f"prefill_graph={_graph_backend(args, 'prefill')}, "
+            f"moe_backend={getattr(args, 'moe_runner_backend', 'auto')}, "
+            f"quantized={quant_config is not None}, "
+            f"compile={getattr(args, 'enable_torch_compile', False)}, "
+            f"speculation={getattr(args, 'speculative_algorithm', None)}. "
+            "Check the validated model profile and runtime in docs/core-compat.md. "
+            "Refusing to fall back to ordinary arithmetic."
+        )
 
 
 def mode() -> str:

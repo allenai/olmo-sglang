@@ -20,6 +20,20 @@ launches. It does not guarantee exact OLMo-core parity or improved training
 quality. Validate numerical behavior and throughput on the intended hardware,
 checkpoint, and runtime.
 
+## Required rounding for training
+
+MILES sets `OLMO_SGLANG_CORE_COMPAT=rounding` and
+`OLMO_SGLANG_REQUIRE_CORE_ROUNDING=1` for teacher and student serving.
+The requirement checks the actual selected mode and the qualified model/runtime
+before constructing model layers. Unsupported configurations fail startup; they
+cannot silently fall back to ordinary arithmetic. Graph checks use SGLang's
+resolved configuration, including legacy flags and JSON overrides.
+
+A deliberate numerical diagnostic must additionally set a nonempty
+`OLMO_SGLANG_DIAGNOSTIC_OVERRIDE_REASON`. The adapter emits a warning containing
+that reason and the selected mode. This bypass does not disable the ordinary
+runtime safety checks for an explicitly selected compatibility mode.
+
 ## Full eager reference
 
 Set `OLMO_SGLANG_CORE_COMPAT=1` before constructing the SGLang engine to select
