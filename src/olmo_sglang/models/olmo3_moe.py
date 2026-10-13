@@ -42,7 +42,7 @@ from torch import nn
 from torch.nn import functional as F
 from transformers import PretrainedConfig
 
-from olmo_sglang import core_compat
+from olmo_sglang import core_compat, kernel_profile
 from olmo_sglang.activations import native_silu_and_mul
 from olmo_sglang.attention import (
     PerHeadRMSNorm,
@@ -640,6 +640,9 @@ class Olmo3MoeForCausalLM(nn.Module):
             quant_config,
             dtype=torch.get_default_dtype(),
         ) as selected_mode:
+            self.kernel_profile = kernel_profile.configure(
+                config, torch.get_default_dtype(), selected_mode
+            )
             self.core_compat_mode = selected_mode
             logger.info("Olmo Core compatibility mode: %s", selected_mode)
             self.config = config
@@ -679,7 +682,11 @@ class Olmo3MoeForCausalLM(nn.Module):
         forward_batch: ForwardBatch,
         input_embeds: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        if self.kernel_profile is not None:
+            self.kernel_profile.observe()
         hidden_states = self.model(input_ids, positions, forward_batch, input_embeds)
+        if self.kernel_profile is not None:
+            self.kernel_profile.observe()
         return self.logits_processor(
             input_ids, hidden_states, self.lm_head, forward_batch
         )

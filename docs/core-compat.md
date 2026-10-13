@@ -139,3 +139,10 @@ agreement for arbitrary cached decoding. Keep probability comparisons separate
 from performance measurements.
 The diagnostic values `moe` and `norms` fuse only that component, allowing its
 effect on performance and full-model probabilities to be isolated.
+
+## Kernel-selection profiles
+
+Core-compatible arithmetic and reproducible autotuning are separate controls.
+[Kernel profiles](kernel-profiles.md) pin the FLA KDA forward configurations,
+validate runtime identity, and fail on uncovered tuning keys. They load before
+warmup and graph capture and leave compiler caches private to each worker.
