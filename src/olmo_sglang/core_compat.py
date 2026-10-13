@@ -69,6 +69,14 @@ def _is_bf16(args, dtype):
     }
 
 
+def _graph_backend(args, phase):
+    """Read the effective graph configuration after SGLang resolves CLI flags."""
+    resolved = getattr(getattr(args, "cuda_graph_config", None), phase, None)
+    if resolved is not None:
+        return resolved.backend
+    return getattr(args, f"cuda_graph_backend_{phase}", None)
+
+
 def default_rounding_supported(
     config, parallel, args, quant_config, *, dtype=None
 ) -> bool:
@@ -85,8 +93,8 @@ def default_rounding_supported(
         and parallel.tp_size == parallel.moe_ep_size == 1
         and quant_config is None
         and _is_bf16(args, dtype)
-        and args.cuda_graph_backend_decode in {"disabled", "full"}
-        and args.cuda_graph_backend_prefill == "disabled"
+        and _graph_backend(args, "decode") in {"disabled", "full"}
+        and _graph_backend(args, "prefill") == "disabled"
         and getattr(args, "moe_runner_backend", "auto") in {"auto", "triton"}
         and not getattr(args, "speculative_algorithm", None)
         and not getattr(args, "enable_torch_compile", False)
@@ -156,8 +164,8 @@ def validate_runtime(config, parallel, args, quant_config, *, dtype=None):
     if quant_config is not None or not _is_bf16(args, dtype):
         raise ValueError("Core compatibility currently requires unquantized BF16")
     if enabled() and (
-        args.cuda_graph_backend_decode != "disabled"
-        or args.cuda_graph_backend_prefill != "disabled"
+        _graph_backend(args, "decode") != "disabled"
+        or _graph_backend(args, "prefill") != "disabled"
     ):
         raise ValueError(
             "Core compatibility requires disabled prefill and decode CUDA graphs"

@@ -278,6 +278,36 @@ def test_auto_preserves_unqualified_execution(
         assert selected == "off"
 
 
+def test_legacy_graph_switch_uses_resolved_configuration(monkeypatch, hero_runtime):
+    monkeypatch.delenv(core_compat.ENVIRONMENT_VARIABLE, raising=False)
+    args = hero_runtime[2]
+    args.disable_cuda_graph = True
+    args.cuda_graph_backend_decode = None
+    args.cuda_graph_backend_prefill = None
+    args.cuda_graph_config = SimpleNamespace(
+        decode=SimpleNamespace(backend="disabled"),
+        prefill=SimpleNamespace(backend="disabled"),
+    )
+    with core_compat.model_mode(*hero_runtime) as selected:
+        assert selected == "rounding"
+    monkeypatch.setenv(core_compat.ENVIRONMENT_VARIABLE, "1")
+    with core_compat.model_mode(*hero_runtime) as selected:
+        assert selected == "full"
+
+
+def test_resolved_graph_config_overrides_convenience_flags(monkeypatch, hero_runtime):
+    args = hero_runtime[2]
+    args.cuda_graph_backend_decode = "disabled"
+    args.cuda_graph_backend_prefill = "disabled"
+    args.cuda_graph_config = SimpleNamespace(
+        decode=SimpleNamespace(backend="full"),
+        prefill=SimpleNamespace(backend="disabled"),
+    )
+    monkeypatch.setenv(core_compat.ENVIRONMENT_VARIABLE, "1")
+    with pytest.raises(ValueError, match="requires disabled"):
+        core_compat.validate_runtime(*hero_runtime)
+
+
 def test_auto_preserves_quantization_and_missing_profile(monkeypatch, hero_runtime):
     monkeypatch.delenv(core_compat.ENVIRONMENT_VARIABLE, raising=False)
     config, parallel, args, _ = hero_runtime
