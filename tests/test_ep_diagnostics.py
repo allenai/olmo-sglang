@@ -13,10 +13,10 @@ from olmo_sglang.models.olmo3_moe import (
 )
 
 
-def test_parallelism_log_reports_resolved_ep_topology(caplog) -> None:
+def test_parallelism_log_reports_resolved_ep_topology(caplog, monkeypatch) -> None:
+    monkeypatch.setattr(torch.distributed, "get_rank", lambda: 1)
     with (
         get_parallel().override(
-            world_rank=1,
             tp_size=2,
             tp_rank=1,
             attn_tp_size=2,
@@ -39,10 +39,11 @@ def test_parallelism_log_reports_resolved_ep_topology(caplog) -> None:
     assert "local_experts=[4,8)" in caplog.text
 
 
-def test_ep_activity_log_counts_this_ranks_experts(caplog) -> None:
+def test_ep_activity_log_counts_this_ranks_experts(caplog, monkeypatch) -> None:
+    monkeypatch.setattr(torch.distributed, "get_rank", lambda: 1)
     topk_ids = torch.tensor([[0, 5], [6, 7]], dtype=torch.int32)
     with (
-        get_parallel().override(world_rank=1, moe_ep_rank=1),
+        get_parallel().override(moe_ep_rank=1),
         caplog.at_level(logging.INFO),
     ):
         _log_ep_activity(

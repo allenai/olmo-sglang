@@ -96,7 +96,7 @@ def _log_ep_parallelism(
             "outer_tp_rank=%d attention_tp=%d attention_tp_rank=%d "
             "attention_dp=%d ep=%d ep_rank=%d moe_tp=%d moe_tp_rank=%d "
             "moe_dp=%d local_experts=[%d,%d)",
-            parallel.world_rank,
+            torch.distributed.get_rank(),
             parallel.tp_size,
             parallel.tp_rank,
             parallel.attn_tp_size,
@@ -123,7 +123,7 @@ def _log_ep_activity(
     logger.info(
         "olmo_sglang_ep_activity world_rank=%d ep_rank=%d layer=%d "
         "local_experts=[%d,%d) routed_assignments=%d total_assignments=%d",
-        parallel.world_rank,
+        torch.distributed.get_rank(),
         parallel.moe_ep_rank,
         layer_id,
         local_start,
