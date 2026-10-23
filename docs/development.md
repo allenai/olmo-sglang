@@ -84,7 +84,7 @@ whole-engine GPU validation commands.
 
 Submit changes to `main` through a pull request. The branch must be up to date,
 Ruff and CPU tests must pass, and review conversations must be resolved before
-merging. A separate approving review is not required. These protections also
+merging. One approving review is required. These protections also
 apply to administrators; force pushes and deletion of `main` are blocked.
 
 Changes to SGLang imports, KDA state shape, model weight mapping, or worker
@@ -95,3 +95,22 @@ kernel, whole-engine, tensor-parallel, or CUDA-graph correctness.
 The `models` package path and `olmo_sglang.register()` are public integration
 contracts. Preserve `olmo_sglang.kda_backend` until the OLMo-MILES preflight has
 migrated to the canonical `olmo_sglang.kda.backend` path.
+
+## Codex reviews
+
+The `Codex review` workflow runs automatically when a non-draft PR from this
+repository is opened, updated, reopened, or marked ready for review. It posts
+an approval, a change request, or an advisory review using the shared criteria
+in [CODE_REVIEW.md](../CODE_REVIEW.md). Follow-up reviews reassess previous
+blocking findings. The workflow fetches the exact SGLang source commit from
+the PR's `pyproject.toml` before starting Codex.
+
+Configure `OPENAI_API_KEY` as a repository Actions secret or an organization
+Actions secret that grants this repository access. The repository's Actions
+workflow permissions must allow GitHub Actions to create and approve pull
+requests. The workflow does not merge PRs; required CI and branch rules still
+apply. Fork PRs are excluded from automatic reviews.
+
+Once the workflow is on `main`, maintainers can run it manually from
+Actions → Codex review → Run workflow, supplying a PR number. Manual reviews
+of drafts or forks produce advisory comments only.
