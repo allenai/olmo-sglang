@@ -184,9 +184,12 @@ and bias handling may change rounding, so agreement must be measured.
 
 This is evaluated independently of first-stage QKV/f1/beta/g1 packing and
 latent/shared-expert packing. It targets one fewer GEMM launch in each of the
-14 KDA layers, pending whole-engine trace verification. GPU checks pass, and a
-cached-weight microbenchmark measures 5.64 → 2.91 microseconds per gate pair at
-batch 64. Whole-engine throughput and trainer divergence are still being
-measured; see the [investigation record](kda-grouped-gates-investigation.md).
+14 KDA layers; the full-engine trace confirms 625 → 611 graph kernels per step.
+GPU checks pass. The independent H100 panel measures +0.400% fixed-length and
++0.669% mixed-length throughput, with all 1,035,090 output tokens/logprobs exactly
+equal against both controls and zero added Core-error metrics. The fixed gain is
+small and varies across waves; see the
+[investigation record](kda-grouped-gates-investigation.md) for uncertainty,
+qualification scope and raw evidence. Other models/hardware are not qualified.
 First-stage and second-stage packing touch the same KDA forward path, so their
 composition requires integration and another measurement.
