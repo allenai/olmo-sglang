@@ -31,6 +31,9 @@ sliding attention, OLMo KDA layers, peri-LN residual ordering, dense SwiGLU or
 routed MoE blocks, and the SGLang logits processor. The loader converts
 HF-layout projections and experts into fused SGLang tensors while preserving
 OLMo-specific router scaling and optional latent/shared-expert structure.
+The router projection is stored in FP32, an exact widening of the BF16
+checkpoint tensor, so FP32 routing needs no per-step weight cast; publications
+copy into that storage with the same exact widening.
 
 FLA is not imported for attention-only checkpoints. The external model package
 still registers the KDA configuration hook so SGLang can prepare hybrid cache

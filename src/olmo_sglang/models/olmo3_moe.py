@@ -196,11 +196,15 @@ class Olmo3MoeSparseMLP(nn.Module):
         self.hidden_size = config.hidden_size
         self.num_experts = config.n_routed_experts
         self.router = nn.Module()
+        # OLMo-core evaluates the router in FP32. Storing the (BF16-valued)
+        # checkpoint weight widened to FP32 is exact and removes a per-step cast;
+        # HF and MILES publications copy into it with the same exact widening.
         self.router.gate = ReplicatedLinear(
             config.hidden_size,
             self.num_experts,
             bias=False,
             quant_config=None,
+            params_dtype=torch.float32,
             prefix=add_prefix("router.gate", prefix),
         )
 
