@@ -126,3 +126,25 @@ def test_fused_norm_keeps_weight_multiply_in_fp32(width, tokens):
         expected = norm(value)
         actual = kernels.rms_norm(value, norm.weight, norm.variance_epsilon)
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("width", [64, 1024, 1280, 4096, 8192])
+@pytest.mark.parametrize("tokens", [1, 64, 673])
+@pytest.mark.parametrize("scale", [None, 32.0, 35.77708763999664])
+def test_fused_norm_folds_residual_add_and_input_scale_exactly(width, tokens, scale):
+    kernels = import_module("olmo_sglang.rounding_kernels")
+    torch.manual_seed(704)
+    value = torch.randn(tokens, width, device="cuda", dtype=torch.bfloat16)
+    residual = torch.randn(tokens, width, device="cuda", dtype=torch.bfloat16) * 3
+    norm = core_compat.CoreRMSNorm(width, 1e-6).cuda().bfloat16()
+    with torch.no_grad():
+        norm.weight.uniform_(0.5, 1.5)
+        scaled = value if scale is None else value * scale
+        separate = residual + norm(scaled)
+        fused = kernels.rms_norm(
+            value, norm.weight, norm.variance_epsilon, residual=residual, scale=scale
+        )
+        module = norm(value, residual=residual, scale=scale)
+    torch.testing.assert_close(fused, separate, rtol=0, atol=0)
+    torch.testing.assert_close(module, separate, rtol=0, atol=0)

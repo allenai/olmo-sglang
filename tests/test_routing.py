@@ -108,3 +108,17 @@ def test_fused_routing_falls_back_to_tensor_path_for_other_norms(monkeypatch):
         torch.linalg.vector_norm(weights / 16.0, ord=2, dim=-1),
         torch.ones(64, device="cuda"),
     )
+
+
+def test_fp32_router_storage_matches_per_step_widening():
+    generator = torch.Generator().manual_seed(11)
+    hidden_states = torch.randn(5, 16, generator=generator).to(torch.bfloat16)
+    weight = torch.randn(8, 16, generator=generator).to(torch.bfloat16)
+
+    stored_fp32 = torch.empty(8, 16, dtype=torch.float32)
+    stored_fp32.copy_(weight)  # the loader's copy_ widens exactly
+
+    assert torch.equal(
+        fp32_router_logits(hidden_states, stored_fp32),
+        fp32_router_logits(hidden_states, weight),
+    )

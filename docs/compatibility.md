@@ -86,6 +86,34 @@ settings is not guaranteed. Validate the actual checkpoint and runtime when
 reference-equivalent probabilities are required; see
 [numerical behavior](numerical-findings.md).
 
+## Tuned fused-MoE kernel configurations
+
+SGLang's Triton fused-MoE kernel reads a per-shape tile configuration from
+`E={experts},N={intermediate},device_name={gpu}.json` under its config root and
+otherwise uses an untuned default. No upstream file exists for the 512-expert,
+1024-wide OLMo expert shape, so the overlay packages a tuned file for the B300
+(`NVIDIA_B300_SXM6_AC`) under
+`olmo_sglang/moe_configs/configs/triton_3_7_1/` and, for OLMo checkpoints with
+512 experts, 1024 intermediate width and 512 expert input width,
+sets `SGLANG_MOE_CONFIG_DIR` when the worker is an unquantized B300 TP1/EP1
+engine and the variable is unset. Selection happens during model construction
+after device and parallel setup, before expert construction. Other GPUs,
+parallel layouts, quantized models and expert shapes retain upstream configuration
+discovery, including files for local tensor-parallel expert dimensions. The H100 tuning
+is not shipped: its matched mixed-length workload regressed by 0.67%, while
+the B300 tuning improved that workload by 4.17%. Both preserved the saved
+token logprobs in the qualification workload.
+An explicit `SGLANG_MOE_CONFIG_DIR` is left alone. SGLang logs
+`Using MoE kernel config from ...` when a file is found; a newer Triton falls back
+to the newest packaged version directory with a warning until the shape is retuned.
+Deterministic inference ignores these files.
+
+The files were produced with SGLang's own tuner on the pinned runtime; the
+patch, search space and launch script are in `tools/moe_tuning/`. On the B300 the
+tuned tiles reduced the fused-MoE kernel time at 64 tokens from 256 to 237 us and
+at an 8192-token prefill chunk from 1509 to 1104 us (kernel-only, uniform random
+routing). Retune after changing the Triton version, the expert shape, or the GPU.
+
 ## Dependency policy
 
 `pyproject.toml` deliberately does not resolve SGLang, PyTorch, CUDA, or Triton.

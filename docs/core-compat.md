@@ -111,6 +111,9 @@ qualification.
 
 Within rounding mode, small Triton kernels fuse activation, FP32 weighted
 reduction and RMS normalization while retaining explicit BF16 boundaries.
+The norm kernel also folds the peri-LN residual add after the norm and the
+embedding scale before it, each at the same BF16 rounding point as the
+separate tensor operations.
 `OLMO_SGLANG_ROUNDING_KERNELS=torch` selects the original separate tensor
 operations as a diagnostic control; the default is `fused`. This setting does
 not change ordinary serving or the full reference mode. Fusion reduces launches
