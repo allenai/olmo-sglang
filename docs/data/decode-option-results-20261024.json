@@ -107,7 +107,8 @@
       "audit_sha256": "2c7eb21205007264f4d7a62f17d4f4574c1937d2a41b29ecd20c9eab788defa2",
       "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
       "final_job": "01M5QFWFPN9AXCYJZST4BZ83C8",
-      "finalized_at": "2026-10-24T17:58:46.793186Z"
+      "finalized_at": "2026-10-24T17:58:46.793186Z",
+      "process_seconds": 971.881196
     },
     {
       "name": "routing tail",
@@ -210,7 +211,8 @@
       "audit_sha256": "4e7b46072370f7e1b22347a175e7e7eccce80a92b172d7ca8eeafc5d88235aa3",
       "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
       "final_job": "01M5QJZ91TXE72KA3DHCNGP5YG",
-      "finalized_at": "2026-10-24T18:52:27.587987Z"
+      "finalized_at": "2026-10-24T18:52:27.587987Z",
+      "process_seconds": 994.671229
     },
     {
       "name": "router input",
@@ -313,7 +315,8 @@
       "audit_sha256": "7085a6949001d176fede0d1947b078f0d1af94415aeeb8fe740f488d2aacd070",
       "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
       "final_job": "01M5QM4MRBKJM51X9RBMXKVRDS",
-      "finalized_at": "2026-10-24T19:09:47.63715Z"
+      "finalized_at": "2026-10-24T19:09:47.63715Z",
+      "process_seconds": 977.375704
     },
     {
       "name": "sampler selection",
@@ -416,7 +419,8 @@
       "audit_sha256": "550282402896299879cf97460b003e02f0452ac7dcf692c47158a6960f7a0507",
       "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
       "final_job": "01M5QN43F8P618HF78HFEXSP1B",
-      "finalized_at": "2026-10-24T19:27:06.508182Z"
+      "finalized_at": "2026-10-24T19:27:06.508182Z",
+      "process_seconds": 984.434264
     },
     {
       "name": "MessagePack IPC",
@@ -519,7 +523,8 @@
       "audit_sha256": "afc3883c3198821dcff4eb2fb15ac91e479724f6098b9291782ddf9358930f81",
       "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
       "final_job": "01M5QVQPGSQTXKDMQ6T45VW49S",
-      "finalized_at": "2026-10-24T21:25:24.13273Z"
+      "finalized_at": "2026-10-24T21:25:24.13273Z",
+      "process_seconds": 980.646814
     },
     {
       "name": "KDA first-stage packing",
@@ -622,11 +627,168 @@
       "audit_sha256": "e2bec8f51b0d2b4eefdc2464db13193b5de745e70ded73ba4d69fe5139171355",
       "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
       "final_job": "01M5QWZCYH37XQHBA7GXMGET65",
-      "finalized_at": "2026-10-24T21:45:14.334066Z"
+      "finalized_at": "2026-10-24T21:45:14.334066Z",
+      "process_seconds": 1044.898341
+    },
+    {
+      "name": "q/k BF16 rounding boundary",
+      "pr": "https://github.com/allenai/olmo-sglang/pull/21",
+      "experiment": "01M5QY1TE4BQRW8BYFCVHFFACB",
+      "result_dataset": "01M5QY1TEBVDFMYBSK3TKWHTHR",
+      "provenance": {
+        "baseline-before": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "fp32",
+          "files_verified": 30
+        },
+        "candidate": {
+          "source": "019b82270e48f572a8e2e2c4756fc00ecb80efd8",
+          "mode": "bf16",
+          "files_verified": 30
+        },
+        "baseline-after": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "fp32",
+          "files_verified": 30
+        }
+      },
+      "throughput_cells": [
+        {
+          "panel": "fixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 5685.7516721240045,
+          "baseline_after_tps": 5707.563875759661,
+          "bracketed_baseline_tps": 5696.636894496098,
+          "candidate_tps": 5720.4803558666645,
+          "throughput_change_fraction": 0.004185532940251813,
+          "paired_wave_change_fractions": [
+            0.006609237637692278,
+            0.0008657495311938934,
+            0.0058095011642440575
+          ],
+          "baseline_after_vs_before_fraction": 0.0038362919968166764,
+          "paired_wave_bootstrap_95pct": [
+            0.0008657495311938934,
+            0.006609237637692278
+          ]
+        },
+        {
+          "panel": "mixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 3569.3931383055433,
+          "baseline_after_tps": 3563.391750477489,
+          "bracketed_baseline_tps": 3566.38991966545,
+          "candidate_tps": 3558.870933600188,
+          "throughput_change_fraction": -0.0021082905219650394,
+          "paired_wave_change_fractions": [
+            0.0006629427151170209,
+            -0.0005607596161119055,
+            -0.005939694436784104
+          ],
+          "baseline_after_vs_before_fraction": -0.0016813468271816845,
+          "paired_wave_bootstrap_95pct": [
+            -0.005939694436784104,
+            0.0006629427151170209
+          ]
+        }
+      ],
+      "vectors": {
+        "candidate": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 384,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": false,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        },
+        "baseline-after": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        }
+      },
+      "trainer_baseline": {
+        "mean_abs": 0.03695125148337553,
+        "signed_mean": 0.0017890456025116677,
+        "p95_abs": 0.13192309141159056,
+        "p99_abs": 0.23230753898620604,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.01664009892859558
+      },
+      "trainer_candidate": {
+        "mean_abs": 0.036966273942368184,
+        "signed_mean": 9.521858892619263e-05,
+        "p95_abs": 0.1319754362106323,
+        "p99_abs": 0.2319702529907226,
+        "max_abs": 1.2524166107177734,
+        "outside_20pct": 0.01701977605812055
+      },
+      "trainer_change": {
+        "mean_abs": 1.5022458992652865e-05,
+        "signed_mean": -0.0016938270135854752,
+        "p95_abs": 5.2344799041731394e-05,
+        "p99_abs": -0.0003372859954834384,
+        "max_abs": -2.0469307899475098,
+        "outside_20pct": 0.000379677129524969
+      },
+      "trainer_change_prompt_cluster_95pct": {
+        "mean_abs": [
+          -8.757959206856221e-05,
+          0.00012003211649094068
+        ],
+        "signed_mean": [
+          -0.0018259691779087188,
+          -0.0015512410246599237
+        ],
+        "outside_20pct": [
+          7.22772325167581e-05,
+          0.0006889621183481114
+        ]
+      },
+      "trainer_reference_contract": "Paired fresh forced-decode engines, no generation warmup, same original tokens; Core e505356 BF16 eval, natural routing, torch attention, one full request/document; CPU token-selection synchronization makes replay timing diagnostic only.",
+      "production_option": null,
+      "production_option_note": "PR21 is an unconditional source change; ISSUE31_KDA_QK_ARM labels the harness source arm only.",
+      "audit_sha256": "b857c54335d16d110899234e09caa57a557a6cbe5dbc18cfec0a482a923937d0",
+      "trainer_audit_sha256": "a3f909fc402d1d49c59cfee97536b77e1e74bcd707d761d31ef55c206ae1a65c",
+      "final_job": "01M5QY1TN8NKT1KQB8WPFGR81D",
+      "finalized_at": "2026-10-24T22:16:27.833986Z",
+      "process_seconds": 1788.367755,
+      "phase_seconds": [
+        {
+          "name": "baseline-before",
+          "code": 0,
+          "seconds": 352.59421786572784
+        },
+        {
+          "name": "candidate",
+          "code": 0,
+          "seconds": 332.3179589849897
+        },
+        {
+          "name": "baseline-after",
+          "code": 0,
+          "seconds": 326.06047453870997
+        },
+        {
+          "name": "replay-control",
+          "code": 0,
+          "seconds": 383.82094649598
+        },
+        {
+          "name": "replay-candidate",
+          "code": 0,
+          "seconds": 392.15005336981267
+        }
+      ],
+      "analysis_dataset": "01M5QZWDFAQGCP8Y2A5HR2MKME"
     }
   ],
   "remaining": [
-    "PR21 q/k rounding common panel running",
     "latent/shared packing GPU qualification and panel",
     "grouped second-stage KDA gates GPU qualification and panel"
   ]

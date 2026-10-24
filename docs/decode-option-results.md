@@ -6,18 +6,19 @@ the first-pass defaults in #15 and the default-off fused router in #10. The new
 kernel switches below are on their linked draft branches, not yet on main as of
 2026-10-24. MessagePack is already an option in the pinned SGLang runtime.
 
-This document is in progress: the q/k rounding, latent/shared projection and
-grouped second-stage gate investigations are not yet complete. No combined
+This document is in progress: the latent/shared projection and grouped
+second-stage gate investigations are not yet complete. No combined
 speedup or real-RL quality result is claimed.
 
 ## Measured options
 
 Each row compares its option independently with a before/after control on one
-H100. All six completed rows have exactly matching output tokens and logprobs
+H100. The first six rows have exactly matching output tokens and logprobs
 on 384 requests / 1,035,090 output tokens, against both controls. Therefore every
 incremental trainer-error and ratio-outlier metric is zero on those trajectories.
 This is observed equality on the tested checkpoint/runtime/workload, not a
-universal arithmetic guarantee.
+universal arithmetic guarantee. The q/k rounding candidate changes arithmetic
+and has a separate paired scoring result below.
 
 | Building block | Opt-in setting | Fixed throughput change | Mixed throughput change | Evidence |
 |---|---|---:|---:|---|
@@ -27,8 +28,9 @@ universal arithmetic guarantee.
 | Sampler selection kernels | `OLMO_SGLANG_SAMPLER=fused` | -0.339%, inconclusive | +0.733% | [PR #20](https://github.com/allenai/olmo-sglang/pull/20) |
 | MessagePack IPC, preserving route return | `SGLANG_USE_PICKLE_IPC=false` | +0.855% | +0.192%, inconclusive | [PR #22](https://github.com/allenai/olmo-sglang/pull/22) |
 | KDA first-stage QKV/f1/beta/g1 packing | `OLMO_SGLANG_KDA_PROJECTIONS=packed` | +1.786% | +2.207% | [PR #23](https://github.com/allenai/olmo-sglang/pull/23) |
+| Q/k BF16 rounding boundary | Source change in PR #21; no switch | +0.419%, small | -0.211%, inconclusive | [Common-panel investigation](qk-rounding-common-panel.md) |
 
-All new kernel switches default to `torch`; SGLang IPC defaults to pickle. Set
+The new optional kernel switches default to `torch`; SGLang IPC defaults to pickle. Set
 the chosen variable before engine/subprocess startup and restart to change it.
 The linked investigations document guards and fallback behavior. For example,
 the sampler retains native RNG and probability kernels and falls back for
@@ -74,6 +76,27 @@ increase over that disagreement; it does not mean serving matches the trainer.
 If free generations change, two fresh engines force-score the same frozen tokens
 before comparing either against Core. Forced-replay timing is diagnostic only.
 
+## Q/k rounding: a numerical tradeoff
+
+The [common-panel measurement](qk-rounding-common-panel.md) of PR #21 used two
+fresh engines to score the same 1,035,090 frozen output tokens, because all 384
+free-generation trajectories changed. Its replay control differs slightly from
+the warmed free-generation control above; compare within this pair.
+
+| Metric against Core | FP32 normalized q/k | BF16 normalized q/k |
+|---|---:|---:|
+| Mean absolute error (nats/token) | 0.03695125 | 0.03696627 |
+| Signed mean, serving minus Core (nats/token) | +0.00178905 | +0.00009522 |
+| Ratio outside [0.8, 1.2] | 1.66400989% | 1.70197761% |
+
+Bias magnitude falls by about 94.7%. The mean-absolute-error change is
++0.00001502 nats, with prompt-cluster 95% interval [-0.00008758, +0.00012003].
+The outlier change is +0.03796771 percentage points, with interval
+[+0.00722772, +0.06889621] pp. Record that measured increase alongside the bias
+reduction; do not label every last-bit change as zero cost. Fixed throughput
+changes +0.419% and mixed -0.211%, without a consistent speed benefit.
+PR #21 remains an unmerged source candidate, not an adopted default.
+
 ## Interactions and limits
 
 Do not add these percentages. They are independent measurements against the same
@@ -92,10 +115,10 @@ that removes routing-replay capability and is not an equivalent option.
 
 The original #10 fused-top-k result belongs to the earlier panel and reference;
 see [its documented tradeoff](core-compat.md#optional-fused-router-top-k). The
-incoming [PR #21](https://github.com/allenai/olmo-sglang/pull/21) q/k rounding
-result also has a separate older reference. Its common-panel measurement is in
-progress. That PR changes source arithmetic unconditionally; the experiment's
-arm label is not a production feature switch, and the PR has not been adopted.
+[PR #21](https://github.com/allenai/olmo-sglang/pull/21) q/k rounding result also
+has a separate older reference; the common-panel row above does not mix its
+numbers with that earlier study. The experiment's arm label is not a production
+feature switch.
 
 Admission/concurrency tuning, MILES lag/drain behavior, real-workload RL quality,
 B300 qualification and final production selection remain later work. The present
