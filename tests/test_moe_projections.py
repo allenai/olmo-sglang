@@ -133,6 +133,7 @@ def test_actual_loaders_refresh_packed_moe_graph():
     graph = torch.cuda.CUDAGraph()
     with torch.cuda.graph(graph):
         actual = module._project_inputs(hidden)
+    graph.replay()
     first = [value.clone() for value in actual]
     updates = [
         (
