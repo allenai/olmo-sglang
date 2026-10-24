@@ -192,11 +192,12 @@ storage. It preserves the separate BF16 SiLU rounding before multiplication.
 There is no per-step weight concatenation. On this checkpoint the intended
 reduction is one GEMM call in each of 15 sparse layers, with one activation
 kernel retained. Actual kernel counts, throughput, and common-token trainer
-divergence still need GPU measurement; no gain or agreement claim is made yet.
+divergence still need whole-engine measurement; no gain or agreement claim is
+made yet. See the [investigation record](moe-projection-investigation.md).
 
 Portable storage, partial-load, output-layout, and default-path tests pass.
-CUDA checks are prepared for strided/empty outputs, all finite BF16 activation
+CUDA checks pass for strided/empty outputs, all finite BF16 activation
 inputs, actual SGLang checkpoint loading, changed inputs, and graph replay after
 weight updates. A constructor check also verifies that the option remains active
-after the default rounding-mode context exits. Those GPU checks and the frozen
-full-engine panel are pending.
+after the default rounding-mode context exits. The frozen full-engine panel is
+running; its performance and numerical conclusions are pending.
