@@ -167,3 +167,16 @@ for the first pass are retained in `runs/issue31-20261023` in the open-instruct
 workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
+
+### Investigation: shared-expert add into post-MLP norm
+
+`OLMO_SGLANG_SHARED_ADD_NORM=fused` opts into combining the routed/shared
+expert addition with the post-feedforward rounding norm. The default is `torch`.
+Set it before engine startup; changing it requires an engine restart. The option
+is active only for sparse layers with a shared expert and fused rounding norms;
+other configurations retain the separate addition. It preserves the BF16 sum
+before normalization and the BF16 norm output before the residual addition.
+Weight names, loaders, and publication storage are unchanged.
+
+Status: candidate under investigation; no throughput or trainer-divergence
+claim yet. The C64 fixed/mixed bracket and exact-output checks are pending.

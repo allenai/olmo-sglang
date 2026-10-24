@@ -300,7 +300,9 @@ class Olmo3MoeSparseMLP(nn.Module):
             else None
         )
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, hidden_states: torch.Tensor, *, separate_shared: bool = False
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor | None]:
         original_shape = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, self.hidden_size)
         # OLMo-core and the exported HF implementation evaluate the router
@@ -325,8 +327,19 @@ class Olmo3MoeSparseMLP(nn.Module):
         if self.latent_up_proj is not None:
             routed_output = self.latent_up_proj(routed_output)[0]
 
-        if self.shared_expert is not None:
-            routed_output = routed_output + self.shared_expert(hidden_states)
+        shared_output = (
+            self.shared_expert(hidden_states)
+            if self.shared_expert is not None
+            else None
+        )
+        if separate_shared:
+            return routed_output.reshape(original_shape), (
+                shared_output.reshape(original_shape)
+                if shared_output is not None
+                else None
+            )
+        if shared_output is not None:
+            routed_output = routed_output + shared_output
         return routed_output.reshape(original_shape)
 
 
@@ -578,6 +591,16 @@ class Olmo3MoeDecoderLayer(nn.Module):
         self.post_feedforward_layernorm = _rms_norm_class()(
             config.hidden_size, eps=config.rms_norm_eps
         )
+        shared_add_mode = os.environ.get("OLMO_SGLANG_SHARED_ADD_NORM", "torch")
+        if shared_add_mode not in {"torch", "fused"}:
+            raise ValueError("OLMO_SGLANG_SHARED_ADD_NORM must be 'torch' or 'fused'")
+        self.fuse_shared_add_norm = (
+            shared_add_mode == "fused"
+            and isinstance(self.mlp, Olmo3MoeSparseMLP)
+            and self.mlp.shared_expert is not None
+            and isinstance(self.post_feedforward_layernorm, RoundingRMSNorm)
+            and core_compat.fused_rounding_enabled("norms")
+        )
 
     def forward(
         self,
@@ -602,6 +625,11 @@ class Olmo3MoeDecoderLayer(nn.Module):
             if self.pre_feedforward_layernorm is not None
             else hidden_states
         )
+        if self.fuse_shared_add_norm:
+            mlp_output, shared_output = self.mlp(mlp_inputs, separate_shared=True)
+            return self.post_feedforward_layernorm(
+                mlp_output, residual=residual, pre_add=shared_output
+            )
         mlp_output = self.mlp(mlp_inputs)
         return _norm_then_add(self.post_feedforward_layernorm, mlp_output, residual)
 
