@@ -6,6 +6,11 @@ document and evaluate case by case. The current phase develops and benchmarks
 individual options. Choosing production combinations, real-workload RL trials,
 and learning-quality evaluation are a later phase.
 
+The [second-pass measurement table](decode-option-results.md) records each
+completed option's throughput, trainer agreement and default-off setting, with
+links to its implementation and reproducible evidence. It also tracks the
+remaining investigations; independent gains are not a combined speedup.
+
 ## What is enabled by default
 
 On main at `b75e163d6bc18605d709f7b3a0064ebe2d857070`, the accepted
