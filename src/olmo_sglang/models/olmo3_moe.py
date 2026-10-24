@@ -13,6 +13,7 @@ import os
 import re
 from collections.abc import Iterable
 from functools import partial
+from types import SimpleNamespace
 from typing import Any
 
 import torch
@@ -42,7 +43,7 @@ from torch import nn
 from torch.nn import functional as F
 from transformers import PretrainedConfig
 
-from olmo_sglang import core_compat, moe_configs, sampling
+from olmo_sglang import core_compat, moe_configs, moe_projections, sampling
 from olmo_sglang.activations import native_silu_and_mul
 from olmo_sglang.attention import (
     PerHeadRMSNorm,
@@ -300,9 +301,43 @@ class Olmo3MoeSparseMLP(nn.Module):
             else None
         )
 
+        self._pack_moe_projections = (
+            moe_projections.enabled()
+            and parallel.tp_size == 1
+            and parallel.moe_ep_size == 1
+            and quant_config is None
+            and not core_compat.enabled()
+            and self.latent_down_proj is not None
+            and self.shared_expert is not None
+        )
+        self.register_buffer("_packed_projection_weight", None, persistent=False)
+        if self._pack_moe_projections:
+            self._repack_projection_weights()
+
+    def _repack_projection_weights(self):
+        self._packed_projection_weight = moe_projections.pack_weights(
+            self.latent_down_proj, self.shared_expert.gate_up_proj
+        )
+        self._packed_projection_layer = SimpleNamespace(
+            weight=self._packed_projection_weight
+        )
+        self._latent_width = self.latent_down_proj.weight.shape[0]
+
+    def _apply(self, fn, recurse=True):
+        super()._apply(fn, recurse=recurse)
+        if self._pack_moe_projections:
+            self._repack_projection_weights()
+        return self
+
+    def _project_inputs(self, hidden_states):
+        packed = self.latent_down_proj.quant_method.apply(
+            self._packed_projection_layer, hidden_states
+        )
+        return moe_projections.split_latent_and_activate(packed, self._latent_width)
+
     def forward(
         self, hidden_states: torch.Tensor, *, separate_shared: bool = False,
-        router_inputs: torch.Tensor | None = None,
+        router_inputs: torch.Tensor | None = None, is_decode: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor | None]:
         original_shape = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, self.hidden_size)
@@ -324,8 +359,16 @@ class Olmo3MoeSparseMLP(nn.Module):
             self.router.gate.weight,
         )
 
+        shared_activation = None
         expert_inputs = hidden_states
-        if self.latent_down_proj is not None:
+        if (
+            self._pack_moe_projections
+            and is_decode
+            and hidden_states.is_cuda
+            and hidden_states.dtype == torch.bfloat16
+        ):
+            expert_inputs, shared_activation = self._project_inputs(hidden_states)
+        elif self.latent_down_proj is not None:
             expert_inputs = self.latent_down_proj(expert_inputs)[0]
 
         topk_output = self.topk(expert_inputs, router_logits)
@@ -341,11 +384,13 @@ class Olmo3MoeSparseMLP(nn.Module):
         if self.latent_up_proj is not None:
             routed_output = self.latent_up_proj(routed_output)[0]
 
-        shared_output = (
-            self.shared_expert(hidden_states)
-            if self.shared_expert is not None
-            else None
-        )
+        shared_output = None
+        if self.shared_expert is not None:
+            shared_output = (
+                self.shared_expert(hidden_states)
+                if shared_activation is None
+                else self.shared_expert.down_proj(shared_activation)[0]
+            )
         if separate_shared:
             return routed_output.reshape(original_shape), (
                 shared_output.reshape(original_shape)
@@ -657,6 +702,8 @@ class Olmo3MoeDecoderLayer(nn.Module):
         # Dense MLPs retain their existing signature; only sparse layers accept
         # the optional router input and separate shared-expert result.
         mlp_kwargs = {} if router_inputs is None else {"router_inputs": router_inputs}
+        if isinstance(self.mlp, Olmo3MoeSparseMLP):
+            mlp_kwargs["is_decode"] = forward_batch.forward_mode.is_decode()
         if self.fuse_shared_add_norm:
             mlp_output, shared_output = self.mlp(
                 mlp_inputs, separate_shared=True, **mlp_kwargs
