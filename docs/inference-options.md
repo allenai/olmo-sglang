@@ -167,3 +167,16 @@ for the first pass are retained in `runs/issue31-20261023` in the open-instruct
 workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
+
+### Investigation: routing-tail fusion
+
+`OLMO_SGLANG_ROUTING_TAIL=fused` opts into a combined selected-weight L1
+normalization, scaling, and int32 index conversion. Default is `torch`; set the
+option before engine startup and restart to change captured graphs. Softmax and
+top-k selection remain the existing PyTorch operations. This initial candidate
+supports CUDA top-16 with L1 or no normalization; CPU, other top-k sizes and other
+norms keep the tensor path. The full `OLMO_SGLANG_ROUTING_KERNELS=fused` option
+(#10) takes precedence and bypasses this tail. The pre-MLP FP32 copy is unchanged.
+
+Status: under investigation. Pinned-runtime exact arithmetic and whole-engine
+throughput/divergence results are pending; no performance claim yet.

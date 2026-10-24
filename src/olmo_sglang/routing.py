@@ -11,6 +11,7 @@ import torch
 import torch.nn.functional as F
 
 ROUTING_KERNELS_VARIABLE = "OLMO_SGLANG_ROUTING_KERNELS"
+ROUTING_TAIL_VARIABLE = "OLMO_SGLANG_ROUTING_TAIL"
 
 
 def fp32_router_logits(
@@ -40,6 +41,14 @@ def routing_kernel_mode() -> str:
     value = os.environ.get(ROUTING_KERNELS_VARIABLE, "torch").lower().strip()
     if value not in {"fused", "torch"}:
         raise ValueError(f"Invalid {ROUTING_KERNELS_VARIABLE} value: {value!r}")
+    return value
+
+
+def routing_tail_mode() -> str:
+    """Opt into the top-16 L1/scale/index tail; the full fused router takes precedence."""
+    value = os.environ.get(ROUTING_TAIL_VARIABLE, "torch").lower().strip()
+    if value not in {"torch", "fused"}:
+        raise ValueError(f"Invalid {ROUTING_TAIL_VARIABLE} value: {value!r}")
     return value
 
 
@@ -79,6 +88,20 @@ def olmo3_moe_topk(
         )
     scores = torch.softmax(gating_output.float(), dim=-1)
     topk_weights, topk_ids = torch.topk(scores, topk, dim=-1)
+    if (
+        routing_tail_mode() == "fused"
+        and topk_weights.is_cuda
+        and topk == 16
+        and normalize_expert_weights in (None, 1.0)
+    ):
+        kernels = import_module("olmo_sglang.routing_tail_kernels")
+        return kernels.finish_topk(
+            topk_weights,
+            topk_ids,
+            normalize=normalize_expert_weights is not None,
+            restore=restore_weight_scale,
+            original_topk=original_num_experts_per_tok,
+        )
     if normalize_expert_weights is not None:
         topk_weights = topk_weights / torch.linalg.vector_norm(
             topk_weights,
