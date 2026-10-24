@@ -201,8 +201,24 @@ the timed waves and was excluded from throughput.
 All **384 trajectories / 1,035,090 output tokens and logprobs** matched exactly
 across the candidate and both controls. Thus any fixed trainer-reference error,
 bias, tail, and ratio-outlier statistic is unchanged on these trajectories; this
-does not mean absolute trainer/inference disagreement is zero. A shared trainer
-reference scoring pass is tracked separately. No real-RL evaluation was run.
+does not mean absolute trainer/inference disagreement is zero. The [shared trainer scoring pass](https://beaker.org/ex/01M5QH3K0YFW17Z7J7W709V53G)
+completed on the same frozen trajectories (128 prompt clusters). It uses pinned
+Core `e505356`, BF16 evaluation, natural routing, torch attention, and one complete
+request per document without EP. No real-RL evaluation was run.
+
+| Trainer disagreement on the same tokens | Control and fused option | Added cost |
+|---|---:|---:|
+| Mean absolute error | 0.03694615 nats/token | 0 |
+| Signed serving-minus-Core bias | +0.00201359 nats/token | 0 |
+| p95 absolute error | 0.13185763 nats | 0 |
+| p99 absolute error | 0.23219654 nats | 0 |
+| Maximum absolute error | 3.29934740 nats | 0 |
+| Probability ratios outside [0.8, 1.2] | 1.64720% | 0 percentage points |
+
+All paired prompt-bootstrap changes are exactly zero because the serving vectors
+are identical. This is an observed result on this panel, not a guarantee for
+unmeasured hardware or workloads. The scorer retained full Core logprob vectors;
+its result dataset is `01M5QH3K19XS37AFA3DTAJGW7F` and process runtime was 94 seconds.
 
 Validation: 155 portable tests passed, 117 CUDA-dependent cases skipped locally;
 45 GPU norm cases passed against separate tensor operations, including changed-
