@@ -123,10 +123,11 @@ not each incur an independent Python launch during graph replay.
 
 ## Next building blocks to measure
 
-These are candidates, **not implemented options or measured speedups**. Component
-budgets below describe existing work; they are not savings forecasts and cannot
-be added together. Each implemented arithmetic option should have an explicit
-switch, a documented default, and its own throughput/agreement row.
+This table records the initial candidate list. Measured opt-in implementations
+available on this branch are documented below; the other entries remain proposals.
+Component budgets describe existing work, not savings forecasts, and cannot be
+added together. Each implemented arithmetic option needs an explicit switch,
+a documented default, and its own throughput/agreement row.
 
 | Candidate | Concrete change | Evidence and tradeoff to measure |
 |---|---|---|
