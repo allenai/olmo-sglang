@@ -176,7 +176,8 @@ with TP1 and unquantized weights. The default is `torch`. Prefill and unsupporte
 configurations use the original projection calls. Restart the engine when
 changing the option.
 
-The packed call retains SGLang's selected unquantized GEMM backend.
+The packed call retains SGLang's unquantized dispatch setting; shape-dependent
+heuristics may select a different kernel or backend after packing.
 The existing named parameters become views into one persistent packed buffer;
 checkpoint loaders and in-place online copies continue updating those parameters.
 Device/dtype moves rebuild the views before graph capture. The second-stage gate
@@ -185,5 +186,15 @@ bias. The recurrence accepts beta's padded row stride directly; a non-unit head
 stride still takes the contiguous fallback. No per-step weight concatenation is
 performed. Changing GEMM shapes may
 change rounding, so this option needs measured common-token trainer divergence.
-GPU loader/refresh/graph tests and the frozen whole-engine benchmark are pending;
-there is no throughput or agreement claim yet.
+This first-stage change replaces four GEMM calls with one in each of the
+checkpoint's 14 KDA layers: 42 calls in principle, before checking extra copies
+and the actual trace. Second-stage gate packing and latent/shared-expert
+projection packing are separate candidates and are not included here.
+The frozen H100 C64 panel improves fixed-length throughput by **1.786%** and
+mixed-length throughput by **2.207%**. All 1,035,090 output token IDs and logprobs
+match both controls exactly; added trainer error and ratio-outlier cost are zero
+on these trajectories. The trace has 583 rather than 625 graph kernels per step,
+matching the intended 42-call reduction. These results qualify this checkpoint,
+runtime and H100 workload; B300, other shapes and composed options remain
+unmeasured. See [the investigation](kda-projection-investigation.md) for the
+protocol, per-wave results, loader/graph checks and limitations.
