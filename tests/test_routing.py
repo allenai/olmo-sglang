@@ -179,3 +179,35 @@ def test_fp32_router_storage_matches_per_step_widening():
         fp32_router_logits(hidden_states, stored_fp32),
         fp32_router_logits(hidden_states, weight),
     )
+
+
+def test_routing_tail_mode_validation(monkeypatch):
+    monkeypatch.delenv(routing.ROUTING_TAIL_VARIABLE, raising=False)
+    assert routing.routing_tail_mode() == "torch"
+    monkeypatch.setenv(routing.ROUTING_TAIL_VARIABLE, " Fused ")
+    assert routing.routing_tail_mode() == "fused"
+    monkeypatch.setenv(routing.ROUTING_TAIL_VARIABLE, "invalid")
+    with pytest.raises(ValueError, match=routing.ROUTING_TAIL_VARIABLE):
+        routing.routing_tail_mode()
+
+
+@pytest.mark.parametrize("normalize", [None, 1.0, 2.0])
+def test_routing_tail_cpu_request_keeps_tensor_path(monkeypatch, normalize):
+    monkeypatch.setenv(routing.ROUTING_TAIL_VARIABLE, "torch")
+    expected = _route("cpu", "torch", monkeypatch, normalize=normalize)
+    monkeypatch.setenv(routing.ROUTING_TAIL_VARIABLE, "fused")
+    actual = _route("cpu", "torch", monkeypatch, normalize=normalize)
+    assert all(torch.equal(a, b) for a, b in zip(actual, expected, strict=True))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("original", [None, 8, 32])
+@pytest.mark.parametrize("normalize", [None, 1.0, 2.0])
+@pytest.mark.parametrize("restore", [False, True])
+def test_routing_tail_cuda_arithmetic(monkeypatch, original, normalize, restore):
+    monkeypatch.setenv(routing.ROUTING_TAIL_VARIABLE, "torch")
+    expected = _route("cuda", "torch", monkeypatch, original, normalize, restore)
+    monkeypatch.setenv(routing.ROUTING_TAIL_VARIABLE, "fused")
+    actual = _route("cuda", "torch", monkeypatch, original, normalize, restore)
+    for a, b in zip(actual, expected, strict=True):
+        torch.testing.assert_close(a, b, rtol=0, atol=0)
