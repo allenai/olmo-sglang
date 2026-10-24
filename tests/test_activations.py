@@ -67,3 +67,32 @@ def test_install_sglang_moe_activation_fallback(monkeypatch: pytest.MonkeyPatch)
     aligned = torch.randn(1, 16)
     assert torch.equal(fused_moe.silu_and_mul(aligned), torch.full((1, 8), 3.0))
     assert len(calls) == 1
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("width", [952, 1024, 8192])
+def test_native_silu_and_mul_matches_separate_ops_bitwise_on_cuda(width):
+    torch.manual_seed(31)
+    gate_up = (torch.randn(37, 2 * width, device="cuda") * 4).to(torch.bfloat16)
+    gate, up = gate_up.chunk(2, dim=-1)
+    expected = F.silu(gate) * up
+
+    assert torch.equal(native_silu_and_mul(gate_up), expected)
+
+    out = torch.empty(37, width, device="cuda", dtype=torch.bfloat16)
+    result = native_silu_and_mul(gate_up, out)
+    assert result is out
+    assert torch.equal(out, expected)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+def test_native_silu_and_mul_filters_rows_without_host_sync_on_cuda():
+    gate_up = torch.randn(4, 14, device="cuda", dtype=torch.bfloat16)
+    out = torch.full((4, 7), float("nan"), device="cuda", dtype=torch.bfloat16)
+    expert_ids = torch.tensor([0, -1], dtype=torch.int32, device="cuda")
+
+    native_silu_and_mul(gate_up, out, expert_ids, expert_step=2)
+
+    expected = F.silu(gate_up[:, :7]) * gate_up[:, 7:]
+    assert torch.equal(out[:2], expected[:2])
+    assert torch.isnan(out[2:]).all()

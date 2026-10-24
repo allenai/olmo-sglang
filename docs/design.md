@@ -13,7 +13,7 @@ The runtime implementation is intentionally split by responsibility:
 src/olmo_sglang/
   registration.py       public SGLang discovery API
   config.py             supported-checkpoint validation
-  activations.py        narrow fused-MoE activation fallback
+  activations.py        SwiGLU with separate-op rounding; fused-MoE fallback
   routing.py            OLMo router numerics
   models/               SGLang causal-LM implementation and weight loading
   kda/                  KDA layer, cache backend, and Triton kernels
