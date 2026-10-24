@@ -24,6 +24,9 @@ olmo-sglang-tp-smoke = "olmo_sglang.validation.tensor_parallel:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+olmo_sglang = ["moe_configs/configs/*/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

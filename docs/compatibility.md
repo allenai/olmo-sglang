@@ -86,6 +86,26 @@ settings is not guaranteed. Validate the actual checkpoint and runtime when
 reference-equivalent probabilities are required; see
 [numerical behavior](numerical-findings.md).
 
+## Tuned fused-MoE kernel configurations
+
+SGLang's Triton fused-MoE kernel reads a per-shape tile configuration from
+`E={experts},N={intermediate},device_name={gpu}.json` under its config root and
+otherwise uses an untuned default. No upstream file exists for the 512-expert,
+1024-wide OLMo expert shape, so the overlay packages tuned files for the B300
+(`NVIDIA_B300_SXM6_AC`) and H100 (`NVIDIA_H100_80GB_HBM3`) under
+`olmo_sglang/moe_configs/configs/triton_3_7_1/` and, for OLMo checkpoints only,
+sets `SGLANG_MOE_CONFIG_DIR` to that package directory when the variable is unset.
+An explicit `SGLANG_MOE_CONFIG_DIR` is left alone. SGLang logs
+`Using MoE kernel config from ...` when a file is found; a newer Triton falls back
+to the newest packaged version directory with a warning until the shape is retuned.
+Deterministic inference ignores these files.
+
+The files were produced with SGLang's own tuner on the pinned runtime; the
+patch, search space and launch script are in `tools/moe_tuning/`. On the B300 the
+tuned tiles reduced the fused-MoE kernel time at 64 tokens from 256 to 237 us and
+at an 8192-token prefill chunk from 1509 to 1104 us (kernel-only, uniform random
+routing). Retune after changing the Triton version, the expert shape, or the GPU.
+
 ## Dependency policy
 
 `pyproject.toml` deliberately does not resolve SGLang, PyTorch, CUDA, or Triton.

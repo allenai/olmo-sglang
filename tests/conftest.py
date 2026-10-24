@@ -5,6 +5,7 @@
 _RUNTIME_TEST_MODULES = {
     "test_mlp_aliasing.py",
     "test_router_storage.py",
+    "test_moe_configs.py",
     "test_core_attention.py",
     "test_ep_diagnostics.py",
     "test_kda_backend.py",
