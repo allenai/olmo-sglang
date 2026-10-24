@@ -140,9 +140,9 @@ def test_packed_kda_strided_beta_matches_contiguous():
                 value_dim=width,
                 allow_neg_eigval=allow_negative,
             )
-            expected = kernel.packed_decode(
+            expected = kernel.olmo_packed_kda_decode(
                 b=beta.contiguous(), state=expected_state, **kwargs
             )
-            actual = kernel.packed_decode(b=beta, state=actual_state, **kwargs)
+            actual = kernel.olmo_packed_kda_decode(b=beta, state=actual_state, **kwargs)
             torch.testing.assert_close(actual, expected, rtol=0, atol=0)
             torch.testing.assert_close(actual_state, expected_state, rtol=0, atol=0)
