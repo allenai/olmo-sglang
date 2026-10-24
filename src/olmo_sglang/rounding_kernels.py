@@ -133,11 +133,24 @@ def _scaled(v, SCALE, HAS_SCALE: tl.constexpr):
 
 
 @triton.jit
+def _norm_input(
+    X, A, offset, mask, SCALE, HAS_SCALE: tl.constexpr, HAS_PRE_ADD: tl.constexpr
+):
+    value = tl.load(X + offset, mask, 0).to(tl.float32)
+    if HAS_PRE_ADD:
+        addition = tl.load(A + offset, mask, 0).to(tl.float32)
+        # The separate shared-expert addition materializes BF16 before RMS norm.
+        value = (value + addition).to(tl.bfloat16).to(tl.float32)
+    return _scaled(value, SCALE, HAS_SCALE)
+
+
+@triton.jit
 def _rms_norm(
     X,
     W,
     Y,
     R,
+    A,
     SCALE,
     WIDTH: tl.constexpr,
     EPS: tl.constexpr,
@@ -146,6 +159,7 @@ def _rms_norm(
     VECTOR: tl.constexpr,
     HAS_RESIDUAL: tl.constexpr,
     HAS_SCALE: tl.constexpr,
+    HAS_PRE_ADD: tl.constexpr,
 ):
     row = tl.program_id(0)
     lane = tl.arange(0, THREADS)
@@ -161,29 +175,41 @@ def _rms_norm(
         else:
             col = lane + base * THREADS * 4
             step = THREADS
-        v0 = _scaled(
-            tl.load(X + row * WIDTH + col, col < WIDTH, 0).to(tl.float32),
+        v0 = _norm_input(
+            X,
+            A,
+            row * WIDTH + col + 0 * step,
+            col + 0 * step < WIDTH,
             SCALE,
             HAS_SCALE,
+            HAS_PRE_ADD,
         )
-        v1 = _scaled(
-            tl.load(X + row * WIDTH + col + step, col + step < WIDTH, 0).to(tl.float32),
+        v1 = _norm_input(
+            X,
+            A,
+            row * WIDTH + col + 1 * step,
+            col + 1 * step < WIDTH,
             SCALE,
             HAS_SCALE,
+            HAS_PRE_ADD,
         )
-        v2 = _scaled(
-            tl.load(X + row * WIDTH + col + 2 * step, col + 2 * step < WIDTH, 0).to(
-                tl.float32
-            ),
+        v2 = _norm_input(
+            X,
+            A,
+            row * WIDTH + col + 2 * step,
+            col + 2 * step < WIDTH,
             SCALE,
             HAS_SCALE,
+            HAS_PRE_ADD,
         )
-        v3 = _scaled(
-            tl.load(X + row * WIDTH + col + 3 * step, col + 3 * step < WIDTH, 0).to(
-                tl.float32
-            ),
+        v3 = _norm_input(
+            X,
+            A,
+            row * WIDTH + col + 3 * step,
+            col + 3 * step < WIDTH,
             SCALE,
             HAS_SCALE,
+            HAS_PRE_ADD,
         )
         a0 += v0 * v0
         a1 += v1 * v1
@@ -201,8 +227,8 @@ def _rms_norm(
         total = tl.sum(total.reshape((2, 32)), axis=0)
     variance = tl.sum(total, axis=0) * (1.0 / WIDTH)
     col = tl.arange(0, BLOCK)
-    value = _scaled(
-        tl.load(X + row * WIDTH + col, col < WIDTH, 0).to(tl.float32), SCALE, HAS_SCALE
+    value = _norm_input(
+        X, A, row * WIDTH + col, col < WIDTH, SCALE, HAS_SCALE, HAS_PRE_ADD
     )
     weight = tl.load(W + col, col < WIDTH, 0).to(tl.float32)
     normalized = value * libdevice.rsqrt(variance + EPS)
@@ -214,11 +240,13 @@ def _rms_norm(
     tl.store(Y + row * WIDTH + col, output, col < WIDTH)
 
 
-def rms_norm(value, weight, eps, residual=None, scale=None):
+def rms_norm(value, weight, eps, residual=None, scale=None, pre_add=None):
     """RMS norm with Core's rounding; optionally ``scale`` the input and add ``residual``.
 
     ``scale`` reproduces ``value * scale`` as a separate BF16 multiply before the
     norm; ``residual`` reproduces ``residual + norm(value)`` after it.
+    ``pre_add`` adds a BF16 tensor before scaling and normalization, preserving
+    the intermediate BF16 rounding of the separate addition.
     """
     value = value.contiguous()
     width = value.shape[-1]
@@ -226,7 +254,17 @@ def rms_norm(value, weight, eps, residual=None, scale=None):
         residual.shape != value.shape or residual.dtype != value.dtype
     ):
         raise ValueError("rms_norm residual must match the input shape and dtype")
+    if pre_add is not None and (
+        pre_add.shape != value.shape
+        or pre_add.dtype != value.dtype
+        or pre_add.device != value.device
+    ):
+        raise ValueError(
+            "rms_norm pre_add must match the input shape, dtype and device"
+        )
     if width > 4096 or (width >= 128 and width % 4):
+        if pre_add is not None:
+            value = value + pre_add
         if scale is not None:
             value = value * scale
         fp32 = value.float()
@@ -235,6 +273,8 @@ def rms_norm(value, weight, eps, residual=None, scale=None):
         return output if residual is None else residual + output
     if residual is not None:
         residual = residual.contiguous()
+    if pre_add is not None:
+        pre_add = pre_add.contiguous()
     output = torch.empty_like(value)
     rows = value.numel() // width
     if rows:
@@ -248,6 +288,7 @@ def rms_norm(value, weight, eps, residual=None, scale=None):
             weight,
             output,
             value if residual is None else residual,
+            value if pre_add is None else pre_add,
             1.0 if scale is None else float(scale),
             width,
             eps,
@@ -256,6 +297,7 @@ def rms_norm(value, weight, eps, residual=None, scale=None):
             vector,
             residual is not None,
             scale is not None,
+            pre_add is not None,
             enable_fp_fusion=False,
         )
     return output
