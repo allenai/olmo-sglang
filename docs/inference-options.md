@@ -124,8 +124,13 @@ remove routing-replay capabilities; they are not equivalent production options.
 The profiles point toward completion gather/IPC, while most per-step CPU copy
 work overlaps GPU execution. The corrected completion profile accounts for every
 returned route byte and measures pickle encoding/decoding separately from base64.
-The existing MessagePack IPC switch is the next route-preserving candidate; its
-whole-engine gain remains unmeasured.
+The existing `SGLANG_USE_PICKLE_IPC=false` switch is now measured with routes
+preserved: +0.855% fixed throughput and +0.192% mixed (inconclusive), with exact
+token IDs, logprobs, and route-history hashes across both controls. All incremental
+trainer-divergence metrics are zero. Pickle remains the default. Local CPU tests
+favor MessagePack for completed route histories, while tiny incremental messages
+are approximately tied; see the linked investigation for workload-dependent
+timings, byte sizes, reproduction instructions and inference-only qualification.
 
 The roughly 24 GB expert-weight size and peak bandwidth give a rough reference,
 not proof that expert GEMMs are optimal. Actual expert coverage, transferred

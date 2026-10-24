@@ -4,8 +4,9 @@ This investigation separates the cost of recording expert routes from the cost
 of returning request histories. On the frozen H100 C64 workload, disabling capture
 improves throughput by about 0.3%; omitting returned histories adds 3.53% on fixed
 lengths and 0.68% on mixed lengths. These are attribution controls, not equivalent
-replacements for rollout routing replay. No route-preserving optimization is
-implemented or claimed by this investigation.
+replacements for rollout routing replay. A subsequent route-preserving panel
+tests the existing MessagePack IPC switch: +0.85% fixed-length throughput and
++0.19% mixed (inconclusive), with identical tokens, logprobs, and route histories.
 
 ## Whole-engine results
 
@@ -240,17 +241,130 @@ be summed into elapsed latency. The largest return encode and decode calls take
 measure, but the profile does not establish a recoverable throughput gain.
 The finalized follow-up dataset is `01M5QT4BGAZED8TAKBKXJJ3MRS`.
 
-### Route-preserving transport candidate
+### Route-preserving MessagePack option
 
 The pinned runtime already supports `SGLANG_USE_PICKLE_IPC=false`, which switches
 its typed interprocess messages to MessagePack. Its tensor codec preserves shape,
 dtype, and raw contiguous tensor bytes. This is an existing runtime option, not a
 new model kernel. Pickle remains the default.
 
-The next controlled panel compares pickle / MessagePack / pickle with identical
+The completed controlled panel compares pickle / MessagePack / pickle with identical
 model source and the same frozen six-wave workload. It retains capture and full
 returned histories, records the actual codec dispatch, and compares SHA-256
 of every returned history alongside all output tokens and logprobs. Hashing runs
 in all three timed paths; writing the sidecar occurs outside timing. This panel
 qualifies inference messages only. Live weight updates, other control messages,
 and real-RL integration require their own later validation.
+
+| Workload | Bracketing pickle tokens/s | MessagePack tokens/s | Throughput change | Individual paired waves |
+|---|---:|---:|---:|---|
+| Fixed | 5,748.35 | 5,797.50 | +0.855% | +1.322%, +0.616%, +0.680% |
+| Mixed | 3,609.02 | 3,615.95 | +0.192% | +0.227%, -0.016%, +0.334% |
+
+Closing-control drift is +0.388% fixed and -0.045% mixed. Three-wave bootstrap
+intervals are [+0.616%, +1.322%] fixed and [-0.016%, +0.334%] mixed; these describe
+this short panel, not variation across machines/days. The mixed result is
+inconclusive. All 384 requests, 1,035,090 output token IDs/logprobs, and SHA-256
+digests of all 1,155,807,232 raw route bytes match both controls exactly. All six
+Core reference input hashes match; incremental mean error, signed bias, tails,
+maximum error, and ratio-outlier costs are zero. The absolute trainer metrics
+remain those reported above.
+
+Both arms use Olmo-SGLang `70abc4`; the only treatment is
+`SGLANG_USE_PICKLE_IPC=false`. Installed dispatch was verified as true/false/true.
+Set the environment variable before starting the engine and all its subprocesses;
+restart to change it. Pickle remains the default. Completion base64 and the client
+API are unchanged. The ordinary 64-step profiles retain 625 graph kernels per
+step and approximately 8.17 ms of graph kernel work. Those profiles stop before
+request completion, so they do not measure completion serialization itself.
+
+The [completed panel](https://beaker.org/ex/01M5QVQPB46F2J210XJR9PDY31)
+ran on one H100 on Jupiter, high priority, with 22-minute protection, a 25-minute
+timeout and no automatic resume. Process runtime was 980.647 seconds (16m21s);
+opening control/candidate/closing control took 343.527/314.239/309.911 seconds,
+including their startup/warmup and applicable profiling. Throughput above excludes
+that overhead. Raw dataset: `01M5QVQPBFVAZB1P5SPC6VKJQ0`; payload:
+`01M5QVP9M3C7XPWTKSADKHNPT3`.
+The [first attempt](https://beaker.org/ex/01M5QTWWMHG6N1FFD4GSK9434B)
+failed after 11.917 seconds, before model loading, because the harness's custom
+probe used a map-style struct in an array-style MessagePack union. Correcting
+the probe to match the installed schema resolved it; no partial timings were used.
+
+### Local CPU characterization
+
+A local test isolates the codecs using the pinned `BatchTokenIDOutput` definition
+and tensor/array hooks, extracted unchanged from SGLang source. Token IDs and
+logprobs come from the frozen panel; route values are synthetic contiguous int32
+tensors with the same per-request byte counts, including prompt history. The
+decoder union includes the tested message, explicit pickle wrapper, and primitives;
+unused message tags are omitted. This is codec work, excluding sockets, base64,
+scheduling and GPU transfers. It is not another engine throughput measurement.
+
+Two fresh Python processes each run 21 randomized encode/decode timing rounds,
+after five warmups, with calibrated blocks of at least approximately 20 ms. The
+process is pinned to one CPU; GC stays enabled, with collection outside each block.
+Results include destruction of returned objects. Hardware: Ryzen 9 9950X;
+Python 3.12, PyTorch 2.11.0+cu130, msgspec 0.19.0, pickle protocol 5. The GPU panel
+uses PyTorch 2.13, so these are local characterization results, not server CPU
+latency predictions. Every populated field and route tensor round-trips exactly.
+
+| Synthetic message using frozen token histories | Pickle encode / decode, µs (run 1 median) | MessagePack encode / decode, µs (run 1 median) | Encode + decode speed ratio, two runs |
+|---|---:|---:|---:|
+| 64 incremental results, no routes | 31.75 / 29.46 | 33.52 / 26.84 | 1.01× / 1.00× |
+| One 1,024-token completion, no routes | 15.96 / 26.75 | 6.73 / 18.07 | 1.72× / 1.73× |
+| One 1,024-token completion, 1.24 MB routes | 75.51 / 94.16 | 45.44 / 57.38 | 1.65× / 1.65× |
+| Eight 1,024-token completions, 9.99 MB routes | 2,748.86 / 1,072.27 | 445.59 / 560.82 | 3.80× / 3.93× |
+| 64 1,024-token completions, 83.22 MB routes | 31,385.97 / 33,164.81 | 21,492.45 / 18,617.32 | 1.61× / 1.73× |
+| One 10,240-token completion, 10.54 MB routes | 837.01 / 946.95 | 682.30 / 803.78 | 1.20× / 1.29× |
+
+The ratio is the sum of separate median encode/decode times for pickle divided
+by that sum for MessagePack, not a measured socket round trip. Large allocations
+show more variation: in run 1, the 83 MB case's encode/decode p10–p90 intervals are
+29.08–34.95 / 23.50–36.19 ms for pickle and 18.65–24.13 / 10.82–22.30 ms for
+MessagePack. Both fresh-process medians favor MessagePack on completed histories.
+The whole 64-request message is a completion-burst stress case, not a claim that
+the scheduler always emits all completions in one message. Batch size and allocation
+behavior materially affect the ratio; the eight-request peak is not universal.
+
+Serialized size falls from 7,746 to 4,319 bytes for the small incremental message,
+but only from about 85.070 MB to 85.037 MB for the largest route-bearing message
+(0.039%). Raw int32 route bytes dominate, so the meaningful benefit there is CPU
+serialization cost, not compression. Tiny incremental messages are essentially
+tied overall; MessagePack encoding alone is slightly slower in that case.
+
+Useful primary references:
+
+- [msgspec's benchmarks](https://msgspec.dev/benchmarks) compare typed/untyped
+  messages and encoding libraries, and explicitly discuss hot-loop limitations.
+  They do not establish performance for these PyTorch payloads.
+- [Quickle's published benchmark and source](https://jcristharif.com/quickle/benchmarks.html)
+  directly compare pickle and MessagePack over 1, 1,000, and 10,000 structured
+  objects. They explain how pickle memoization can win for repeated objects and
+  strings; a format name alone does not establish a universal winner.
+- [PyZMQ's serialization documentation](https://pyzmq.readthedocs.io/en/latest/howto/serialization.html)
+  confirms `send_pyobj` uses ordinary pickle serialization. Multipart buffer
+  transport is a separate design, not what this switch implements.
+
+The smaller whole-engine gain is consistent with removing CPU work that is only
+a small part of the current critical path. This makes MessagePack a measured,
+route-preserving option that can reduce future CPU pressure as decode improves;
+it does not establish that serialization is the next dominant bottleneck.
+
+The [MessagePack analysis archive](https://beaker.org/ds/01M5QXH778MVPVWRQEC3H3SZYF)
+contains both CPU runs with every timing sample, p10/median/p90 summaries, source
+and input hashes, full engine/trainer/route audits, and reproduction commands.
+The benchmark is also checked in as
+[`tools/benchmark_ipc_codecs.py`](../tools/benchmark_ipc_codecs.py). With the raw
+panel downloaded to `./msgpack-result` and the pinned SGLang commit available in
+`../sglang`:
+
+```bash
+python tools/benchmark_ipc_codecs.py \
+  --sglang-repo ../sglang --panel ./msgpack-result \
+  --output cpu-codecs.json --seed 31
+```
+
+Repeat with `--seed 73` and a different output file for the second randomized
+ordering. The script checks all populated message fields, exact tensor values,
+and every request's route byte count before timing. It needs `torch`, `numpy`,
+and `msgspec`; no installed SGLang runtime or GPU is required.
