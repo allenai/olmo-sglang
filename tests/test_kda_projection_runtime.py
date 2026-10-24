@@ -109,3 +109,40 @@ def test_packed_kda_checkpoint_refresh_and_graph_replay(monkeypatch):
     )
     for output, reference in zip(actual, expected, strict=True):
         torch.testing.assert_close(output, reference, atol=0, rtol=0)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+def test_packed_kda_strided_beta_matches_contiguous():
+    kernel = import_module("olmo_sglang.kda.packed_decode")
+    torch.manual_seed(817)
+    heads, width = 4, 64
+    for rows in [1, 16, 64]:
+        mixed = torch.randn(
+            rows, 3 * heads * width, device="cuda", dtype=torch.bfloat16
+        )
+        gate = torch.randn(rows, heads * width, device="cuda", dtype=torch.bfloat16)
+        padded = torch.randn(rows, heads + 7, device="cuda", dtype=torch.bfloat16)
+        beta = padded[:, 1 : heads + 1]
+        states = torch.randn(rows + 2, heads, width, width, device="cuda")
+        indices = torch.randperm(rows + 2, device="cuda")[:rows]
+        a_log = torch.randn(heads, device="cuda")
+        dt_bias = torch.randn(heads * width, device="cuda")
+        for allow_negative in [False, True]:
+            actual_state, expected_state = states.clone(), states.clone()
+            kwargs = dict(
+                mixed_qkv=mixed,
+                a=gate,
+                a_log=a_log,
+                dt_bias=dt_bias,
+                scale=width**-0.5,
+                state_indices=indices,
+                num_value_heads=heads,
+                value_dim=width,
+                allow_neg_eigval=allow_negative,
+            )
+            expected = kernel.packed_decode(
+                b=beta.contiguous(), state=expected_state, **kwargs
+            )
+            actual = kernel.packed_decode(b=beta, state=actual_state, **kwargs)
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+            torch.testing.assert_close(actual_state, expected_state, rtol=0, atol=0)

@@ -160,7 +160,11 @@ def olmo_packed_kda_decode(
             f"state={tuple(state.shape)}, heads={num_value_heads}, value_dim={value_dim}"
         )
     a = a.reshape(batch_size, num_value_heads * key_dim).contiguous()
-    b = b.reshape(batch_size, num_value_heads).contiguous()
+    b = b.reshape(batch_size, num_value_heads)
+    # A packed projection gives beta a padded row stride. The kernel already
+    # receives stride_b_token; only the head dimension needs unit stride.
+    if b.stride(-1) != 1:
+        b = b.contiguous()
     a_log = a_log.reshape(num_value_heads).contiguous()
     dt_bias = dt_bias.reshape(num_value_heads * key_dim).contiguous()
     state_indices = state_indices.reshape(batch_size)
