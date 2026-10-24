@@ -27,19 +27,34 @@ def shipped_config_files() -> list[Path]:
     return sorted((CONFIG_ROOT / "configs").glob("triton_*/E=*.json"))
 
 
-def install_config_dir(config: Any) -> str | None:
+def install_config_dir(
+    config: Any,
+    *,
+    device_name: str,
+    tp_size: int,
+    ep_size: int,
+    quantized: bool = False,
+) -> str | None:
     """Point SGLang at the packaged configurations unless the caller chose a directory.
 
     SGLang replaces its lookup root with the variable rather than merging, so this
     is only installed for the qualified 512-expert, 1024-intermediate,
-    512-input shape. Other OLMo shapes retain their upstream lookup root.
-    The lookup is cached on first use, so this must run before the first MoE forward;
-    the OLMo configuration hook runs in every process when the model config is built.
+    512-input shape on B300 with TP1/EP1 and no quantization. Other layouts
+    retain their upstream lookup root, including tuning for local TP dimensions.
+    Run during model construction after device/parallel setup, before expert
+    construction or the first cached MoE lookup.
     """
 
     global _ANNOUNCED
     existing = os.environ.get(ENVIRONMENT_VARIABLE)
     if existing:
+        return None
+    if (
+        device_name != "NVIDIA B300 SXM6 AC"
+        or tp_size != 1
+        or ep_size != 1
+        or quantized
+    ):
         return None
     expert_hidden_size = getattr(config, "latent_moe_dim", None)
     if expert_hidden_size is None:

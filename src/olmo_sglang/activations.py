@@ -46,6 +46,8 @@ def native_silu_and_mul(
     if expert_step < 1:
         raise ValueError(f"expert_step must be positive, got {expert_step}")
 
+    if out is None:
+        out = torch.empty_like(result)
     out_2d = out.view(-1, out.shape[-1])
     result_2d = result.view_as(out_2d)
     row_ids = torch.arange(out_2d.shape[0], device=expert_ids.device)

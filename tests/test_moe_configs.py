@@ -65,14 +65,10 @@ def _olmo_config():
     )
 
 
-def test_olmo_config_hook_sets_config_dir_only_when_unset(monkeypatch):
+def test_config_preparation_does_not_install_runtime_tuning(monkeypatch):
     monkeypatch.delenv(moe_configs.ENVIRONMENT_VARIABLE, raising=False)
     backend._prepare_olmo_config(_olmo_config())
-    assert os.environ[moe_configs.ENVIRONMENT_VARIABLE] == str(moe_configs.CONFIG_ROOT)
-
-    monkeypatch.setenv(moe_configs.ENVIRONMENT_VARIABLE, "/explicit/choice")
-    backend._prepare_olmo_config(_olmo_config())
-    assert os.environ[moe_configs.ENVIRONMENT_VARIABLE] == "/explicit/choice"
+    assert moe_configs.ENVIRONMENT_VARIABLE not in os.environ
 
 
 def test_other_architectures_do_not_touch_config_dir(monkeypatch):

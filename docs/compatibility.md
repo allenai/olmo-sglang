@@ -95,8 +95,11 @@ otherwise uses an untuned default. No upstream file exists for the 512-expert,
 (`NVIDIA_B300_SXM6_AC`) under
 `olmo_sglang/moe_configs/configs/triton_3_7_1/` and, for OLMo checkpoints with
 512 experts, 1024 intermediate width and 512 expert input width,
-sets `SGLANG_MOE_CONFIG_DIR` to that package directory when the variable is unset.
-Other expert shapes retain upstream configuration discovery. The H100 tuning
+sets `SGLANG_MOE_CONFIG_DIR` when the worker is an unquantized B300 TP1/EP1
+engine and the variable is unset. Selection happens during model construction
+after device and parallel setup, before expert construction. Other GPUs,
+parallel layouts, quantized models and expert shapes retain upstream configuration
+discovery, including files for local tensor-parallel expert dimensions. The H100 tuning
 is not shipped: its matched mixed-length workload regressed by 0.67%, while
 the B300 tuning improved that workload by 4.17%. Both preserved the saved
 token logprobs in the qualification workload.

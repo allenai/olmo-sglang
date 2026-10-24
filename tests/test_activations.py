@@ -96,3 +96,13 @@ def test_native_silu_and_mul_filters_rows_without_host_sync_on_cuda():
     expected = F.silu(gate_up[:, :7]) * gate_up[:, 7:]
     assert torch.equal(out[:2], expected[:2])
     assert torch.isnan(out[2:]).all()
+
+
+def test_native_silu_and_mul_allocates_filtered_output():
+    gate_up = torch.randn(4, 14)
+    expert_ids = torch.tensor([0, -1], dtype=torch.int32)
+    result = native_silu_and_mul(gate_up, expert_ids=expert_ids, expert_step=2)
+    expected = F.silu(gate_up[:, :7]) * gate_up[:, 7:]
+    assert result.shape == expected.shape
+    torch.testing.assert_close(result[:2], expected[:2])
+    # Inactive rows in a newly allocated output remain unspecified, as before.

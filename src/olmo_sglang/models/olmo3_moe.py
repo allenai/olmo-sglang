@@ -42,7 +42,7 @@ from torch import nn
 from torch.nn import functional as F
 from transformers import PretrainedConfig
 
-from olmo_sglang import core_compat
+from olmo_sglang import core_compat, moe_configs
 from olmo_sglang.activations import native_silu_and_mul
 from olmo_sglang.attention import (
     PerHeadRMSNorm,
@@ -244,6 +244,19 @@ class Olmo3MoeSparseMLP(nn.Module):
                 quant_config=quant_config,
                 prefix=add_prefix("latent_up_proj", prefix),
             )
+
+        # Global checkpoint dimensions do not identify local TP/EP GEMM shapes.
+        # Select the tuned directory only after this worker's layout is known.
+        parallel = get_parallel()
+        moe_configs.install_config_dir(
+            config,
+            device_name=torch.cuda.get_device_name()
+            if torch.cuda.is_available()
+            else "",
+            tp_size=parallel.tp_size,
+            ep_size=parallel.moe_ep_size,
+            quantized=quant_config is not None,
+        )
 
         expert_class = (
             core_compat.CoreExperts
