@@ -42,7 +42,7 @@ from torch import nn
 from torch.nn import functional as F
 from transformers import PretrainedConfig
 
-from olmo_sglang import core_compat, moe_configs
+from olmo_sglang import core_compat, moe_configs, sampling
 from olmo_sglang.activations import native_silu_and_mul
 from olmo_sglang.attention import (
     PerHeadRMSNorm,
@@ -730,6 +730,11 @@ class Olmo3MoeForCausalLM(nn.Module):
         prefix: str = "",
     ) -> None:
         super().__init__()
+        if sampling.sampler_mode() == "fused":
+            sampling.install(
+                tp_size=get_parallel().tp_size,
+                backend=get_server_args().sampling_backend,
+            )
         with core_compat.model_mode(
             config,
             get_parallel(),
