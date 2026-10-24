@@ -178,5 +178,42 @@ other configurations retain the separate addition. It preserves the BF16 sum
 before normalization and the BF16 norm output before the residual addition.
 Weight names, loaders, and publication storage are unchanged.
 
-Status: candidate under investigation; no throughput or trainer-divergence
-claim yet. The C64 fixed/mixed bracket and exact-output checks are pending.
+The [H100 investigation](https://beaker.org/ex/01M5QFWFK04XSK73YRNPBN48X8)
+compared current defaults (`70abc4ad`) with candidate `66a831d`, using the same
+C64 fixed/mixed requests, BF16 TP1/EP1, memory fraction 0.7, prefill chunk 8192,
+context 12288, full decode graphs, radix/Mamba cache, and route capture/return.
+Each panel had three timed repeats, bracketed by controls on the same GPU.
+
+| Whole-wave throughput | Bracketed control | Fused option | Change | Closing-control drift |
+|---|---:|---:|---:|---:|
+| Fixed length | 5,789.58 tokens/s | 5,838.37 tokens/s | +0.84% | +0.91% |
+| Mixed lengths | 3,624.69 tokens/s | 3,630.81 tokens/s | +0.17% | +0.066% |
+
+All six paired waves improved, but the fixed panel's control drift limits the
+precision of its larger aggregate gain. Three-wave descriptive bootstrap ranges
+were +0.22 to +2.02% fixed and +0.11 to +0.26% mixed; these are short screening
+estimates, not production forecasts. The profile gives narrower evidence of a
+small benefit: **625 → 610 graph kernels/step**, **8.172 → 8.163 ms** of summed
+graph GPU work, and **8.774 → 8.763 ms** over the last 32 profiled steps. The
+additional norm work offsets some of the removed additions. Profiling ran after
+the timed waves and was excluded from throughput.
+
+All **384 trajectories / 1,035,090 output tokens and logprobs** matched exactly
+across the candidate and both controls. Thus any fixed trainer-reference error,
+bias, tail, and ratio-outlier statistic is unchanged on these trajectories; this
+does not mean absolute trainer/inference disagreement is zero. A shared trainer
+reference scoring pass is tracked separately. No real-RL evaluation was run.
+
+Validation: 155 portable tests passed, 117 CUDA-dependent cases skipped locally;
+45 GPU norm cases passed against separate tensor operations, including changed-
+input CUDA graph replay. Model source and configuration hashes and the requested
+option values were verified from the engine reports. Process runtime was
+16m12s; engine startup was 54.31/31.38 seconds for opening control/candidate
+and is excluded from throughput. Both earlier B300 attempts were canceled while
+queued, before GPU execution. **B300 performance remains unmeasured.**
+
+This is a small, default-off building block. It has not been selected for a
+production combination. Raw finalized records, profiles, source bundle and
+attempt ledger: `open-instruct/runs/issue31-decode-menu-20261024/01-shared-add`.
+Immutable H100 payload: `01M5QFVDHASTZM94Q5PSN36WH4`;
+result dataset: `01M5QFWFKCYYP3CKAK1D0TG4X5`.
