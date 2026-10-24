@@ -1,6 +1,9 @@
+from types import SimpleNamespace
+
 import pytest
 import torch
 
+from olmo_sglang import routing
 from olmo_sglang.routing import (
     ROUTING_KERNELS_VARIABLE,
     fp32_router_logits,
@@ -52,18 +55,39 @@ def test_olmo_router_applies_original_topk_correction():
     torch.testing.assert_close(weights.sum(dim=-1), torch.tensor([4.0]))
 
 
-def test_routing_kernel_mode_defaults_to_fused_and_rejects_unknown(monkeypatch):
+def test_routing_kernel_mode_defaults_to_torch_and_rejects_unknown(monkeypatch):
     monkeypatch.delenv(ROUTING_KERNELS_VARIABLE, raising=False)
-    assert routing_kernel_mode() == "fused"
+    assert routing_kernel_mode() == "torch"
     monkeypatch.setenv(ROUTING_KERNELS_VARIABLE, " Torch ")
     assert routing_kernel_mode() == "torch"
+    monkeypatch.setenv(ROUTING_KERNELS_VARIABLE, " Fused ")
+    assert routing_kernel_mode() == "fused"
     monkeypatch.setenv(ROUTING_KERNELS_VARIABLE, "cuda")
     with pytest.raises(ValueError, match=ROUTING_KERNELS_VARIABLE):
         routing_kernel_mode()
 
 
-def _route(device, mode, monkeypatch, original=None, normalize=1.0):
-    monkeypatch.setenv(ROUTING_KERNELS_VARIABLE, mode)
+@pytest.mark.parametrize("mode", [None, "torch", "fused"])
+@pytest.mark.parametrize("is_cuda", [False, True])
+@pytest.mark.parametrize("normalize", [None, 1.0, 2.0])
+def test_fused_routing_requires_opt_in_and_supported_inputs(
+    monkeypatch, mode, is_cuda, normalize
+):
+    if mode is None:
+        monkeypatch.delenv(ROUTING_KERNELS_VARIABLE, raising=False)
+    else:
+        monkeypatch.setenv(ROUTING_KERNELS_VARIABLE, mode)
+    supported = routing._fused_topk_supported(
+        SimpleNamespace(is_cuda=is_cuda), normalize
+    )
+    assert supported == (mode == "fused" and is_cuda and normalize in (None, 1.0))
+
+
+def _route(device, mode, monkeypatch, original=None, normalize=1.0, restore=True):
+    if mode is None:
+        monkeypatch.delenv(ROUTING_KERNELS_VARIABLE, raising=False)
+    else:
+        monkeypatch.setenv(ROUTING_KERNELS_VARIABLE, mode)
     generator = torch.Generator().manual_seed(7)
     logits = torch.randn(64, 512, generator=generator).to(device)
     hidden = torch.zeros(64, 8, dtype=torch.bfloat16, device=device)
@@ -73,16 +97,46 @@ def _route(device, mode, monkeypatch, original=None, normalize=1.0):
         16,
         True,
         normalize_expert_weights=normalize,
-        restore_weight_scale=True,
+        restore_weight_scale=restore,
         original_num_experts_per_tok=original,
     )
 
 
+def test_cpu_fused_request_keeps_tensor_path(monkeypatch):
+    def unexpected_fused_call(*args, **kwargs):
+        pytest.fail("CPU routing must not load or call the fused runtime")
+
+    monkeypatch.setattr(routing, "_fused_olmo3_moe_topk", unexpected_fused_call)
+    expected = _route("cpu", "torch", monkeypatch)
+    for mode in (None, "fused"):
+        actual = _route("cpu", mode, monkeypatch)
+        assert all(torch.equal(a, b) for a, b in zip(actual, expected))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+def test_default_cuda_routing_keeps_tensor_path(monkeypatch):
+    def unexpected_fused_call(*args, **kwargs):
+        pytest.fail("Default CUDA routing must not call the fused runtime")
+
+    monkeypatch.setattr(routing, "_fused_olmo3_moe_topk", unexpected_fused_call)
+    expected = _route("cuda", "torch", monkeypatch)
+    actual = _route("cuda", None, monkeypatch)
+    assert all(torch.equal(a, b) for a, b in zip(actual, expected))
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 @pytest.mark.parametrize("original", [None, 32])
-def test_fused_routing_matches_tensor_routing_on_cuda(monkeypatch, original):
-    fused_weights, fused_ids = _route("cuda", "fused", monkeypatch, original)
-    torch_weights, torch_ids = _route("cuda", "torch", monkeypatch, original)
+@pytest.mark.parametrize("normalize", [None, 1.0])
+@pytest.mark.parametrize("restore", [False, True])
+def test_fused_routing_matches_tensor_routing_on_cuda(
+    monkeypatch, original, normalize, restore
+):
+    fused_weights, fused_ids = _route(
+        "cuda", "fused", monkeypatch, original, normalize, restore
+    )
+    torch_weights, torch_ids = _route(
+        "cuda", "torch", monkeypatch, original, normalize, restore
+    )
 
     assert fused_ids.dtype == torch_ids.dtype == torch.int32
     # Both paths select the same experts; the order within a row is kernel-specific.
@@ -95,10 +149,13 @@ def test_fused_routing_matches_tensor_routing_on_cuda(monkeypatch, original):
         rtol=1e-5,
         atol=1e-6,
     )
-    expected_sum = 16.0 * ((original / 16) ** 0.5 if original else 1.0)
-    torch.testing.assert_close(
-        fused_weights.sum(-1), torch.full((64,), expected_sum, device="cuda")
-    )
+    if normalize is not None:
+        expected_sum = (16.0 if restore else 1.0) * (
+            (original / 16) ** 0.5 if original else 1.0
+        )
+        torch.testing.assert_close(
+            fused_weights.sum(-1), torch.full((64,), expected_sum, device="cuda")
+        )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")

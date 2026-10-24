@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+from importlib import import_module
 
 import torch
 import torch.nn.functional as F
@@ -29,12 +30,14 @@ def fp32_router_logits(
 def routing_kernel_mode() -> str:
     """Select the fused SGLang top-k kernel or the original tensor operations.
 
-    ``fused`` (default) runs SGLang's single-launch softmax/top-k/renormalize
-    kernel on CUDA; ``torch`` keeps the separate tensor operations as a
-    diagnostic control. CPU tensors always use the tensor operations.
+    ``torch`` (default) preserves the original GPU tensor operations and their
+    numerical behavior. ``fused`` opts into SGLang's softmax/top-k/renormalize
+    kernel, which changes reduction order and can increase trainer divergence.
+    Set this before engine startup/CUDA graph capture. CPU tensors always use
+    the tensor operations.
     """
 
-    value = os.environ.get(ROUTING_KERNELS_VARIABLE, "fused").lower().strip()
+    value = os.environ.get(ROUTING_KERNELS_VARIABLE, "torch").lower().strip()
     if value not in {"fused", "torch"}:
         raise ValueError(f"Invalid {ROUTING_KERNELS_VARIABLE} value: {value!r}")
     return value
@@ -46,9 +49,9 @@ def _fused_topk_supported(
     # The fused kernel renormalizes by the sum of the selected weights, which is
     # L1 normalization of non-negative softmax scores; other norms stay on torch.
     return (
-        gating_output.is_cuda
+        routing_kernel_mode() == "fused"
+        and gating_output.is_cuda
         and normalize_expert_weights in (None, 1.0)
-        and routing_kernel_mode() == "fused"
     )
 
 
@@ -109,8 +112,8 @@ def _fused_olmo3_moe_topk(
     can differ in the last bit because the kernel sums in a different order.
     """
 
-    # Imported here so the CPU-only suite can import this module without SGLang.
-    from sglang.srt.layers.moe.topk import fused_topk
+    # Load lazily so the default/CPU path does not require SGLang at import time.
+    fused_topk = import_module("sglang.srt.layers.moe.topk").fused_topk
 
     topk_weights, topk_ids = fused_topk(
         hidden_states,
