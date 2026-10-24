@@ -11,9 +11,15 @@ import torch.nn.functional as F
 def fp32_router_logits(
     hidden_states: torch.Tensor, router_weight: torch.Tensor
 ) -> torch.Tensor:
-    """Evaluate the OLMo router projection in FP32, matching OLMo-core."""
+    """Evaluate the OLMo router projection in FP32, matching OLMo-core.
 
-    return F.linear(hidden_states.float(), router_weight.float())
+    The model stores the router weight in FP32 already (an exact widening of the
+    BF16 checkpoint), so only the activations need a cast there.
+    """
+
+    if router_weight.dtype != torch.float32:
+        router_weight = router_weight.float()
+    return F.linear(hidden_states.float(), router_weight)
 
 
 def olmo3_moe_topk(

@@ -42,7 +42,7 @@ from torch import nn
 from torch.nn import functional as F
 from transformers import PretrainedConfig
 
-from olmo_sglang import core_compat
+from olmo_sglang import core_compat, moe_configs
 from olmo_sglang.activations import native_silu_and_mul
 from olmo_sglang.attention import (
     PerHeadRMSNorm,
@@ -63,6 +63,22 @@ def _rms_norm_class():
     if core_compat.rounding_enabled():
         return RoundingRMSNorm
     return core_compat.CoreRMSNorm if core_compat.norms_enabled() else RMSNorm
+
+
+def _norm_then_add(norm: nn.Module, value: torch.Tensor, residual: torch.Tensor):
+    """Peri-LN ``residual + norm(value)``; Core-style norms fold the add into the kernel."""
+    if isinstance(norm, core_compat.CoreRMSNorm):
+        return norm(value, residual=residual)
+    return residual + norm(value)
+
+
+def _scale_then_norm(norm: nn.Module | None, value: torch.Tensor, scale: float):
+    """Embedding ``norm(value * scale)``; Core-style norms fold the scale into the kernel."""
+    if norm is None:
+        return value * scale
+    if isinstance(norm, core_compat.CoreRMSNorm):
+        return norm(value, scale=scale)
+    return norm(value * scale)
 
 
 def _local_expert_range(
@@ -180,11 +196,15 @@ class Olmo3MoeSparseMLP(nn.Module):
         self.hidden_size = config.hidden_size
         self.num_experts = config.n_routed_experts
         self.router = nn.Module()
+        # OLMo-core evaluates the router in FP32. Storing the (BF16-valued)
+        # checkpoint weight widened to FP32 is exact and removes a per-step cast;
+        # HF and MILES publications copy into it with the same exact widening.
         self.router.gate = ReplicatedLinear(
             config.hidden_size,
             self.num_experts,
             bias=False,
             quant_config=None,
+            params_dtype=torch.float32,
             prefix=add_prefix("router.gate", prefix),
         )
 
@@ -224,6 +244,19 @@ class Olmo3MoeSparseMLP(nn.Module):
                 quant_config=quant_config,
                 prefix=add_prefix("latent_up_proj", prefix),
             )
+
+        # Global checkpoint dimensions do not identify local TP/EP GEMM shapes.
+        # Select the tuned directory only after this worker's layout is known.
+        parallel = get_parallel()
+        moe_configs.install_config_dir(
+            config,
+            device_name=torch.cuda.get_device_name()
+            if torch.cuda.is_available()
+            else "",
+            tp_size=parallel.tp_size,
+            ep_size=parallel.moe_ep_size,
+            quantized=quant_config is not None,
+        )
 
         expert_class = (
             core_compat.CoreExperts
@@ -559,7 +592,9 @@ class Olmo3MoeDecoderLayer(nn.Module):
             else hidden_states
         )
         attention_output = self.self_attn(positions, attention_inputs, forward_batch)
-        hidden_states = residual + self.post_attention_layernorm(attention_output)
+        hidden_states = _norm_then_add(
+            self.post_attention_layernorm, attention_output, residual
+        )
 
         residual = hidden_states
         mlp_inputs = (
@@ -568,7 +603,7 @@ class Olmo3MoeDecoderLayer(nn.Module):
             else hidden_states
         )
         mlp_output = self.mlp(mlp_inputs)
-        return residual + self.post_feedforward_layernorm(mlp_output)
+        return _norm_then_add(self.post_feedforward_layernorm, mlp_output, residual)
 
 
 class Olmo3MoeModel(nn.Module):
@@ -613,9 +648,9 @@ class Olmo3MoeModel(nn.Module):
         hidden_states = (
             self.embed_tokens(input_ids) if input_embeds is None else input_embeds
         )
-        hidden_states = hidden_states * self.embed_scale
-        if self.embed_norm is not None:
-            hidden_states = self.embed_norm(hidden_states)
+        hidden_states = _scale_then_norm(
+            self.embed_norm, hidden_states, self.embed_scale
+        )
         for layer in self.layers:
             hidden_states = layer(positions, hidden_states, forward_batch)
         return self.norm(hidden_states)

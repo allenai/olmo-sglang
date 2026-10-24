@@ -239,7 +239,6 @@ def _prepare_olmo_config(config: Any) -> bool:
     architectures = tuple(getattr(config, "architectures", ()) or ())
     if "Olmo3MoeForCausalLM" not in architectures:
         return False
-
     layer_types = tuple(getattr(config, "layer_types", ()) or ())
     linear_layer_ids = [
         index

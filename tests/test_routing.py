@@ -43,3 +43,17 @@ def test_olmo_router_applies_original_topk_correction():
     )
 
     torch.testing.assert_close(weights.sum(dim=-1), torch.tensor([4.0]))
+
+
+def test_fp32_router_storage_matches_per_step_widening():
+    generator = torch.Generator().manual_seed(11)
+    hidden_states = torch.randn(5, 16, generator=generator).to(torch.bfloat16)
+    weight = torch.randn(8, 16, generator=generator).to(torch.bfloat16)
+
+    stored_fp32 = torch.empty(8, 16, dtype=torch.float32)
+    stored_fp32.copy_(weight)  # the loader's copy_ widens exactly
+
+    assert torch.equal(
+        fp32_router_logits(hidden_states, stored_fp32),
+        fp32_router_logits(hidden_states, weight),
+    )
