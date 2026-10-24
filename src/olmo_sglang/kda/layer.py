@@ -23,6 +23,8 @@ from sglang.srt.utils import add_prefix, set_weight_attrs
 from torch import nn
 from transformers import PretrainedConfig
 
+from olmo_sglang.kda import projections
+
 
 class Olmo3MoeKDAAttention(nn.Module):
     """KDA layer matching the Megatron-converted OLMo checkpoint contract."""
@@ -117,6 +119,15 @@ class Olmo3MoeKDAAttention(nn.Module):
             prefix=add_prefix("g_proj_2", prefix),
         )
 
+        self._pack_kda_projections = (
+            projections.projection_mode() == "packed"
+            and attn_tp_size == 1
+            and quant_config is None
+        )
+        self.register_buffer("_packed_input_weight", None, persistent=False)
+        if self._pack_kda_projections:
+            self._repack_input_weights()
+
         self.qkv_conv1d = MergedColumnParallelLinear(
             input_size=self.conv_size,
             output_sizes=[total_key_dim, total_key_dim, total_value_dim],
@@ -161,6 +172,17 @@ class Olmo3MoeKDAAttention(nn.Module):
             dt_bias=self.dt_bias,
         )
 
+    def _repack_input_weights(self):
+        modules = [getattr(self, name) for name in projections.PROJECTION_NAMES]
+        self._packed_input_sizes = [module.weight.shape[0] for module in modules]
+        self._packed_input_weight = projections.pack_weights(modules)
+
+    def _apply(self, fn, recurse=True):
+        super()._apply(fn, recurse=recurse)
+        if self._pack_kda_projections:
+            self._repack_input_weights()
+        return self
+
     def forward(
         self,
         positions: torch.Tensor,
@@ -168,10 +190,22 @@ class Olmo3MoeKDAAttention(nn.Module):
         forward_batch: ForwardBatch,
     ) -> torch.Tensor:
         del positions
-        mixed_qkv = self.qkv_proj(hidden_states)[0]
-        raw_gate = self.f_proj_2(self.f_proj_1(hidden_states)[0])[0]
-        raw_beta = self.beta_proj(hidden_states)[0]
-        output_gate = self.g_proj_2(self.g_proj_1(hidden_states)[0])[0]
+        if (
+            self._pack_kda_projections
+            and forward_batch.forward_mode.is_decode()
+            and hidden_states.is_cuda
+            and hidden_states.dtype == torch.bfloat16
+        ):
+            mixed_qkv, first_gate, raw_beta, first_output_gate = projections.project(
+                hidden_states, self._packed_input_weight, self._packed_input_sizes
+            )
+            raw_gate = self.f_proj_2(first_gate)[0]
+            output_gate = self.g_proj_2(first_output_gate)[0]
+        else:
+            mixed_qkv = self.qkv_proj(hidden_states)[0]
+            raw_gate = self.f_proj_2(self.f_proj_1(hidden_states)[0])[0]
+            raw_beta = self.beta_proj(hidden_states)[0]
+            output_gate = self.g_proj_2(self.g_proj_1(hidden_states)[0])[0]
 
         if not forward_batch.forward_mode.is_decode():
             raw_gate = raw_gate.unflatten(

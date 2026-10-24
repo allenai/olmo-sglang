@@ -167,3 +167,20 @@ for the first pass are retained in `runs/issue31-20261023` in the open-instruct
 workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
+
+### KDA first-stage projection packing (investigation)
+
+`OLMO_SGLANG_KDA_PROJECTIONS=packed` opts into one GEMM for the first-stage
+QKV, forget-gate, beta, and output-gate projections during BF16 CUDA decode
+with TP1 and unquantized weights. The default is `torch`. Prefill and unsupported
+configurations use the original projection calls. Restart the engine when
+changing the option.
+
+The existing named parameters become views into one persistent packed buffer;
+checkpoint loaders and in-place online copies continue updating those parameters.
+Device/dtype moves rebuild the views before graph capture. The second-stage gate
+projections and their BF16 inputs remain separate, including the output gate's
+bias. No per-step weight concatenation is performed. Changing GEMM shapes may
+change rounding, so this option needs measured common-token trainer divergence.
+GPU loader/refresh/graph tests and the frozen whole-engine benchmark are pending;
+there is no throughput or agreement claim yet.
