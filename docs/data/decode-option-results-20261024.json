@@ -1,0 +1,633 @@
+{
+  "status": "in_progress",
+  "baseline": "70abc4a",
+  "sglang": "3145136dcd1238754e0ea2b2ffd546532119c71c",
+  "hardware": "one H100 per panel, same device for before/candidate/after; separate panels can use different H100s",
+  "protocol": "C64, three fixed and three mixed waves, BF16 TP1/EP1, memory.7, chunk8192, context12288, cache/graphs/routes/logprobs on; paired per-option controls; not composition",
+  "core_dataset": "01M5QH3K19XS37AFA3DTAJGW7F",
+  "options": [
+    {
+      "name": "shared-add/norm",
+      "pr": "https://github.com/allenai/olmo-sglang/pull/17",
+      "experiment": "01M5QFWFK04XSK73YRNPBN48X8",
+      "result_dataset": "01M5QFWFKCYYP3CKAK1D0TG4X5",
+      "provenance": {
+        "baseline-before": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        },
+        "candidate": {
+          "source": "66a831d216d75e712939624cb47452c0cde68f87",
+          "mode": "fused",
+          "files_verified": 30
+        },
+        "baseline-after": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        }
+      },
+      "throughput_cells": [
+        {
+          "panel": "fixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 5763.4912789917225,
+          "baseline_after_tps": 5815.914848343952,
+          "bracketed_baseline_tps": 5789.584394774398,
+          "candidate_tps": 5838.3729368614195,
+          "throughput_change_fraction": 0.00842695066869692,
+          "paired_wave_change_fractions": [
+            0.02020567851264765,
+            0.003881071292201277,
+            0.002158440103425363
+          ],
+          "baseline_after_vs_before_fraction": 0.009095800932902742,
+          "paired_wave_bootstrap_95pct": [
+            0.002158440103425363,
+            0.02020567851264765
+          ]
+        },
+        {
+          "panel": "mixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 3623.500234938826,
+          "baseline_after_tps": 3625.8798301184615,
+          "bracketed_baseline_tps": 3624.689641979854,
+          "candidate_tps": 3630.8130271937516,
+          "throughput_change_fraction": 0.0016893543499501007,
+          "paired_wave_change_fractions": [
+            0.002608184583937412,
+            0.0013733124066770408,
+            0.0011057330118879882
+          ],
+          "baseline_after_vs_before_fraction": 0.0006567117497857655,
+          "paired_wave_bootstrap_95pct": [
+            0.0011057330118879882,
+            0.002608184583937412
+          ]
+        }
+      ],
+      "vectors": {
+        "candidate": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        },
+        "baseline-after": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        }
+      },
+      "trainer_baseline": {
+        "mean_abs": 0.03694615088772125,
+        "signed_mean": 0.002013588094103423,
+        "p95_abs": 0.1318576335906979,
+        "p99_abs": 0.23219653606414786,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.016471997604073075
+      },
+      "trainer_change": {
+        "mean_abs": 0.0,
+        "signed_mean": 0.0,
+        "p95_abs": 0.0,
+        "p99_abs": 0.0,
+        "max_abs": 0.0,
+        "outside_20pct": 0.0
+      },
+      "audit_sha256": "2c7eb21205007264f4d7a62f17d4f4574c1937d2a41b29ecd20c9eab788defa2",
+      "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
+      "final_job": "01M5QFWFPN9AXCYJZST4BZ83C8",
+      "finalized_at": "2026-10-24T17:58:46.793186Z"
+    },
+    {
+      "name": "routing tail",
+      "pr": "https://github.com/allenai/olmo-sglang/pull/18",
+      "experiment": "01M5QJZ8APPEQXPD5BDZQ1S47V",
+      "result_dataset": "01M5QJZ8AYFGCT9WH4QXDBX04S",
+      "provenance": {
+        "baseline-before": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        },
+        "candidate": {
+          "source": "d53c843064e927c29d6bdc938dfa33a53f0a297c",
+          "mode": "fused",
+          "files_verified": 31
+        },
+        "baseline-after": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        }
+      },
+      "throughput_cells": [
+        {
+          "panel": "fixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 5793.263909649515,
+          "baseline_after_tps": 5803.021099744325,
+          "bracketed_baseline_tps": 5798.1383998151205,
+          "candidate_tps": 5801.567088853924,
+          "throughput_change_fraction": 0.000591343083309992,
+          "paired_wave_change_fractions": [
+            -0.028888560623611226,
+            0.013321877245567437,
+            0.016066615124239902
+          ],
+          "baseline_after_vs_before_fraction": 0.001684230210634352,
+          "paired_wave_bootstrap_95pct": [
+            -0.028888560623611226,
+            0.016066615124239902
+          ]
+        },
+        {
+          "panel": "mixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 3622.7346335415773,
+          "baseline_after_tps": 3631.451775072982,
+          "bracketed_baseline_tps": 3627.087966741535,
+          "candidate_tps": 3662.801185640872,
+          "throughput_change_fraction": 0.009846251104690174,
+          "paired_wave_change_fractions": [
+            0.01073414142999396,
+            0.00957032421981463,
+            0.009255981374795219
+          ],
+          "baseline_after_vs_before_fraction": 0.0024062324219653597,
+          "paired_wave_bootstrap_95pct": [
+            0.009255981374795219,
+            0.01073414142999396
+          ]
+        }
+      ],
+      "vectors": {
+        "candidate": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        },
+        "baseline-after": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        }
+      },
+      "trainer_baseline": {
+        "mean_abs": 0.03694615088772125,
+        "signed_mean": 0.002013588094103423,
+        "p95_abs": 0.1318576335906979,
+        "p99_abs": 0.23219653606414786,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.016471997604073075
+      },
+      "trainer_change": {
+        "mean_abs": 0.0,
+        "signed_mean": 0.0,
+        "p95_abs": 0.0,
+        "p99_abs": 0.0,
+        "max_abs": 0.0,
+        "outside_20pct": 0.0
+      },
+      "audit_sha256": "4e7b46072370f7e1b22347a175e7e7eccce80a92b172d7ca8eeafc5d88235aa3",
+      "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
+      "final_job": "01M5QJZ91TXE72KA3DHCNGP5YG",
+      "finalized_at": "2026-10-24T18:52:27.587987Z"
+    },
+    {
+      "name": "router input",
+      "pr": "https://github.com/allenai/olmo-sglang/pull/19",
+      "experiment": "01M5QM4MAT3PX0F8H75A6HYD8Y",
+      "result_dataset": "01M5QM4MB1AXWY9XVK53TC00JV",
+      "provenance": {
+        "baseline-before": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        },
+        "candidate": {
+          "source": "f8f77a993143c17114a97645bc8fd7e81d0c01b5",
+          "mode": "fused",
+          "files_verified": 30
+        },
+        "baseline-after": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        }
+      },
+      "throughput_cells": [
+        {
+          "panel": "fixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 5800.147843759248,
+          "baseline_after_tps": 5768.932683145521,
+          "bracketed_baseline_tps": 5784.498151797535,
+          "candidate_tps": 5834.271805421389,
+          "throughput_change_fraction": 0.008604662378254302,
+          "paired_wave_change_fractions": [
+            0.009400583647020344,
+            0.004301629727542666,
+            0.013075170509887712
+          ],
+          "baseline_after_vs_before_fraction": -0.005381787060361409,
+          "paired_wave_bootstrap_95pct": [
+            0.004301629727542666,
+            0.013075170509887712
+          ]
+        },
+        {
+          "panel": "mixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 3621.88209553472,
+          "baseline_after_tps": 3621.645512220558,
+          "bracketed_baseline_tps": 3621.763800014075,
+          "candidate_tps": 3644.3207971915654,
+          "throughput_change_fraction": 0.006228180086565338,
+          "paired_wave_change_fractions": [
+            0.006675460498570596,
+            0.006468393315249177,
+            0.005614587625945022
+          ],
+          "baseline_after_vs_before_fraction": -6.532054548480382e-05,
+          "paired_wave_bootstrap_95pct": [
+            0.005614587625945022,
+            0.006675460498570596
+          ]
+        }
+      ],
+      "vectors": {
+        "candidate": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        },
+        "baseline-after": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        }
+      },
+      "trainer_baseline": {
+        "mean_abs": 0.03694615088772125,
+        "signed_mean": 0.002013588094103423,
+        "p95_abs": 0.1318576335906979,
+        "p99_abs": 0.23219653606414786,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.016471997604073075
+      },
+      "trainer_change": {
+        "mean_abs": 0.0,
+        "signed_mean": 0.0,
+        "p95_abs": 0.0,
+        "p99_abs": 0.0,
+        "max_abs": 0.0,
+        "outside_20pct": 0.0
+      },
+      "audit_sha256": "7085a6949001d176fede0d1947b078f0d1af94415aeeb8fe740f488d2aacd070",
+      "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
+      "final_job": "01M5QM4MRBKJM51X9RBMXKVRDS",
+      "finalized_at": "2026-10-24T19:09:47.63715Z"
+    },
+    {
+      "name": "sampler selection",
+      "pr": "https://github.com/allenai/olmo-sglang/pull/20",
+      "experiment": "01M5QN43B7H4K343V77ACTX4EE",
+      "result_dataset": "01M5QN43BENREX7PJKAHGHE9KV",
+      "provenance": {
+        "baseline-before": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        },
+        "candidate": {
+          "source": "b2bcc96388bfb4f80bad32c22d9731cd2a9643d3",
+          "mode": "fused",
+          "files_verified": 32
+        },
+        "baseline-after": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        }
+      },
+      "throughput_cells": [
+        {
+          "panel": "fixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 5776.5527473819775,
+          "baseline_after_tps": 5786.78737756541,
+          "bracketed_baseline_tps": 5781.665533174466,
+          "candidate_tps": 5762.082789569523,
+          "throughput_change_fraction": -0.0033870419332595603,
+          "paired_wave_change_fractions": [
+            -0.010397579584420225,
+            0.0023462531669531383,
+            -0.003259186324384822
+          ],
+          "baseline_after_vs_before_fraction": 0.0017717539562105422,
+          "paired_wave_bootstrap_95pct": [
+            -0.010397579584420225,
+            0.0023462531669531383
+          ]
+        },
+        {
+          "panel": "mixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 3621.8045800343284,
+          "baseline_after_tps": 3616.766686344185,
+          "bracketed_baseline_tps": 3619.2838800551162,
+          "candidate_tps": 3645.81988145242,
+          "throughput_change_fraction": 0.0073318375338105035,
+          "paired_wave_change_fractions": [
+            0.006410675313153202,
+            0.009320634764923286,
+            0.0065255194107267656
+          ],
+          "baseline_after_vs_before_fraction": -0.0013909899274839876,
+          "paired_wave_bootstrap_95pct": [
+            0.006410675313153202,
+            0.009320634764923286
+          ]
+        }
+      ],
+      "vectors": {
+        "candidate": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        },
+        "baseline-after": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        }
+      },
+      "trainer_baseline": {
+        "mean_abs": 0.03694615088772125,
+        "signed_mean": 0.002013588094103423,
+        "p95_abs": 0.1318576335906979,
+        "p99_abs": 0.23219653606414786,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.016471997604073075
+      },
+      "trainer_change": {
+        "mean_abs": 0.0,
+        "signed_mean": 0.0,
+        "p95_abs": 0.0,
+        "p99_abs": 0.0,
+        "max_abs": 0.0,
+        "outside_20pct": 0.0
+      },
+      "audit_sha256": "550282402896299879cf97460b003e02f0452ac7dcf692c47158a6960f7a0507",
+      "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
+      "final_job": "01M5QN43F8P618HF78HFEXSP1B",
+      "finalized_at": "2026-10-24T19:27:06.508182Z"
+    },
+    {
+      "name": "MessagePack IPC",
+      "pr": "https://github.com/allenai/olmo-sglang/pull/22",
+      "experiment": "01M5QVQPB46F2J210XJR9PDY31",
+      "result_dataset": "01M5QVQPBFVAZB1P5SPC6VKJQ0",
+      "provenance": {
+        "baseline-before": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "true",
+          "files_verified": 30
+        },
+        "candidate": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "false",
+          "files_verified": 30
+        },
+        "baseline-after": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "true",
+          "files_verified": 30
+        }
+      },
+      "throughput_cells": [
+        {
+          "panel": "fixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 5737.238183761123,
+          "baseline_after_tps": 5759.513726393525,
+          "bracketed_baseline_tps": 5748.354375077884,
+          "candidate_tps": 5797.496422656172,
+          "throughput_change_fraction": 0.008548889712044483,
+          "paired_wave_change_fractions": [
+            0.01321704353510711,
+            0.006155612919628961,
+            0.006799400998315663
+          ],
+          "baseline_after_vs_before_fraction": 0.003882624691345482,
+          "paired_wave_bootstrap_95pct": [
+            0.006155612919628961,
+            0.01321704353510711
+          ]
+        },
+        {
+          "panel": "mixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 3609.8391770375083,
+          "baseline_after_tps": 3608.2103361788886,
+          "bracketed_baseline_tps": 3609.0245728243012,
+          "candidate_tps": 3615.9542598392554,
+          "throughput_change_fraction": 0.0019200997042621015,
+          "paired_wave_change_fractions": [
+            0.0022704660219274864,
+            -0.00016219435662645498,
+            0.0033415837194143982
+          ],
+          "baseline_after_vs_before_fraction": -0.00045122255555896107,
+          "paired_wave_bootstrap_95pct": [
+            -0.00016219435662645498,
+            0.0033415837194143982
+          ]
+        }
+      ],
+      "vectors": {
+        "candidate": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        },
+        "baseline-after": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        }
+      },
+      "trainer_baseline": {
+        "mean_abs": 0.03694615088772125,
+        "signed_mean": 0.002013588094103423,
+        "p95_abs": 0.1318576335906979,
+        "p99_abs": 0.23219653606414786,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.016471997604073075
+      },
+      "trainer_change": {
+        "mean_abs": 0.0,
+        "signed_mean": 0.0,
+        "p95_abs": 0.0,
+        "p99_abs": 0.0,
+        "max_abs": 0.0,
+        "outside_20pct": 0.0
+      },
+      "audit_sha256": "afc3883c3198821dcff4eb2fb15ac91e479724f6098b9291782ddf9358930f81",
+      "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
+      "final_job": "01M5QVQPGSQTXKDMQ6T45VW49S",
+      "finalized_at": "2026-10-24T21:25:24.13273Z"
+    },
+    {
+      "name": "KDA first-stage packing",
+      "pr": "https://github.com/allenai/olmo-sglang/pull/23",
+      "experiment": "01M5QWZCQ5DAYCYNEG74N8GC6X",
+      "result_dataset": "01M5QWZCQJ3V3GBTY6TK32DM8Q",
+      "provenance": {
+        "baseline-before": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        },
+        "candidate": {
+          "source": "edc0ae582defcd9241d83f544e12393d7f3b8a2d",
+          "mode": "packed",
+          "files_verified": 31
+        },
+        "baseline-after": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        }
+      },
+      "throughput_cells": [
+        {
+          "panel": "fixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 5774.048574564223,
+          "baseline_after_tps": 5744.366739751402,
+          "bracketed_baseline_tps": 5759.169413558592,
+          "candidate_tps": 5862.0281878707365,
+          "throughput_change_fraction": 0.017860001490837663,
+          "paired_wave_change_fractions": [
+            0.009478705532723009,
+            0.025104577387657256,
+            0.017554571428365584
+          ],
+          "baseline_after_vs_before_fraction": -0.005140558557746755,
+          "paired_wave_bootstrap_95pct": [
+            0.009478705532723009,
+            0.025104577387657256
+          ]
+        },
+        {
+          "panel": "mixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 3614.575742085008,
+          "baseline_after_tps": 3611.5608951935096,
+          "bracketed_baseline_tps": 3613.0676897207763,
+          "candidate_tps": 3692.795844533245,
+          "throughput_change_fraction": 0.022066609778526036,
+          "paired_wave_change_fractions": [
+            0.022267119584695072,
+            0.023430225122273107,
+            0.020745898248969663
+          ],
+          "baseline_after_vs_before_fraction": -0.0008340804306288252,
+          "paired_wave_bootstrap_95pct": [
+            0.020745898248969663,
+            0.023430225122273107
+          ]
+        }
+      ],
+      "vectors": {
+        "candidate": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        },
+        "baseline-after": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        }
+      },
+      "trainer_baseline": {
+        "mean_abs": 0.03694615088772125,
+        "signed_mean": 0.002013588094103423,
+        "p95_abs": 0.1318576335906979,
+        "p99_abs": 0.23219653606414786,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.016471997604073075
+      },
+      "trainer_change": {
+        "mean_abs": 0.0,
+        "signed_mean": 0.0,
+        "p95_abs": 0.0,
+        "p99_abs": 0.0,
+        "max_abs": 0.0,
+        "outside_20pct": 0.0
+      },
+      "audit_sha256": "e2bec8f51b0d2b4eefdc2464db13193b5de745e70ded73ba4d69fe5139171355",
+      "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
+      "final_job": "01M5QWZCYH37XQHBA7GXMGET65",
+      "finalized_at": "2026-10-24T21:45:14.334066Z"
+    }
+  ],
+  "remaining": [
+    "PR21 q/k rounding common panel running",
+    "latent/shared packing GPU qualification and panel",
+    "grouped second-stage KDA gates GPU qualification and panel"
+  ]
+}
