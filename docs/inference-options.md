@@ -195,7 +195,7 @@ and [+0.641%, +0.932%] mixed; they do not estimate cross-day/machine variation.
 This option is not a uniform throughput improvement.
 
 The isolated complete sampler call at vocabulary 100278 measured about
-134.11 → 63.35 microseconds at batch64 (78.73 → 54.57 at16, 74.56 → 56.70 at1).
+134.11 → 63.35 microseconds at batch 64 (78.73 → 54.57 at 16, 74.56 → 56.70 at1).
 Those microbenchmarks are not whole-engine gains. Separate 64-step profiles show
 outside-graph GPU kernel work **0.2660 → 0.2123 ms/step**. Both custom selection
 kernels execute once per step outside the graph; the graph retains 625 kernels
@@ -222,24 +222,24 @@ B300, compositions and real-RL route-replay/learning-quality effects remain
 unmeasured. Forced-token scoring alone would not prove sampler correctness;
 this panel used ordinary free sampling, and separate RNG checks were performed.
 
-Validation: portable suite156 passed/115 CUDA cases skipped locally; pinned Ruff
-passes. GPU precheck passed240 repeated draws with exactly matching samples and
-final CUDA RNG states across batches1/16/64 and vocabularies2/33/512/100278.
+Validation: portable suite 156 passed/115 CUDA cases skipped locally; pinned Ruff
+passes. GPU precheck passed 240 repeated draws with exactly matching samples and
+final CUDA RNG states across batches 1/16/64 and vocabularies 2/33/512/100278.
 Crafted cross-partition ties, infinities/NaNs, invalid flags and changed-input graph
-replay of the selection kernel also passed. Tested Torch2.13.0+cu130/Triton3.7.1.
+replay of the selection kernel also passed. Tested Torch 2.13.0+cu130/Triton 3.7.1.
 Runtime source/configuration hashes, requested mode and actual custom-kernel
 dispatch were verified. Candidate `b2bcc96`, baseline `70abc4ad`; later changes
-are result documentation only. BF16 TP1/EP1, memory0.7, context12288, prefill8192,
+are result documentation only. BF16 TP1/EP1, memory 0.7, context 12288, prefill 8192,
 full decode graphs, radix/Mamba cache, route capture/return, original logprobs,
-temperature1/top_p1/top_k-1. Three fixed and three mixed waves. Startup, warmup
+temperature 1 / top_p 1 / top_k -1. Three fixed and three mixed waves. Startup, warmup
 and profiling excluded from throughput; prefill and drain included.
 
 Runs:
 
-1. Completed H100 panel, RNG checks and profiles, process runtime16m24s:
+1. Completed H100 panel, RNG checks and profiles, process runtime 16m24s:
    [Beaker](https://beaker.org/ex/01M5QN43B7H4K343V77ACTX4EE).
    Payload `01M5QKSRY6KR12QZ173ZD0KV6Z`; result `01M5QN43BENREX7PJKAHGHE9KV`.
-2. Common trainer reference, 384 trajectories / 1,035,090 tokens,94 seconds:
+2. Common trainer reference, 384 trajectories / 1,035,090 tokens, 94 seconds:
    [Beaker](https://beaker.org/ex/01M5QH3K0YFW17Z7J7W709V53G).
    Result `01M5QH3K19XS37AFA3DTAJGW7F`.
 
