@@ -189,15 +189,18 @@ MoE requires contiguous expert input, and the shared SwiGLU wrapper would make
 another copy. This option instead uses one kernel to copy the latent output into
 contiguous storage while producing the shared SwiGLU activation in contiguous
 storage. It preserves the separate BF16 SiLU rounding before multiplication.
-There is no per-step weight concatenation. On this checkpoint the intended
-reduction is one GEMM call in each of 15 sparse layers, with one activation
-kernel retained. Actual kernel counts, throughput, and common-token trainer
-divergence still need whole-engine measurement; no gain or agreement claim is
-made yet. See the [investigation record](moe-projection-investigation.md).
+There is no per-step weight concatenation. The H100 trace confirms one fewer
+GEMM call in each of 15 sparse layers, with one activation kernel retained:
+625 → 610 graph kernels per step. The independent frozen panel measures
++0.759% fixed-length and +0.766% mixed-length throughput. All 1,035,090 output
+tokens/logprobs match both controls exactly, so added Core-error metrics are
+zero on these trajectories. This does not establish equality on other models
+or hardware. See the [investigation record](moe-projection-investigation.md)
+for controls, uncertainty, limitations and raw artifacts.
 
 Portable storage, partial-load, output-layout, and default-path tests pass.
 CUDA checks pass for strided/empty outputs, all finite BF16 activation
 inputs, actual SGLang checkpoint loading, changed inputs, and graph replay after
 weight updates. A constructor check also verifies that the option remains active
-after the default rounding-mode context exits. The frozen full-engine panel is
-running; its performance and numerical conclusions are pending.
+after the default rounding-mode context exits. Full-engine source, checkpoint,
+trajectory and finalized-profile hashes were verified.
