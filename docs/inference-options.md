@@ -168,15 +168,82 @@ workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
 
-### Investigation: fused simple sampler selection
+### Investigation: fused simple sampler — measured H100 option
 
-`OLMO_SGLANG_SAMPLER=fused` is an experimental, default-off option for the pinned
-SGLang runtime, TP1, and the PyTorch sampling backend. It retains Torch's
-exponential random-number generation and the existing log-softmax calculation,
-then fuses probability/noise division, argmax, and validity reductions. Seeded or
-filtered sampling and unsupported tensor layouts/dtypes retain the original path.
-Set the option before engine startup; restart to change it.
+`OLMO_SGLANG_SAMPLER=fused` is a default-off option for pinned SGLang
+`0.5.19.dev49+g3145136`, TP1 and the PyTorch sampling backend. It retains Torch's
+exponential RNG and existing softmax/log-softmax, then combines probability/noise
+division, argmax and validity checks. The selected token uses the first-index tie
+and NaN rules checked against Torch. It uses two selection kernels plus the
+existing RNG and an asynchronous validity assertion. Set before engine startup;
+restart to change the process-local sampler hook. A different SGLang version
+raises an error when this supported configuration is requested. Seeded/filtered
+sampling, unsupported tensor layouts/dtypes, TP and other backends retain the
+original path. Greedy sampling bypasses this selection hook.
 
-Status: implementation and portable tests prepared. GPU sample/RNG-state parity,
-throughput and same-token trainer-divergence measurements are pending. Forced-token
-scoring alone cannot establish sampler correctness, because it bypasses selection.
+H100 C64 control/candidate/control results:
+
+| Frozen workload | Bracketed control tokens/s | Candidate tokens/s | Change | Closing-control drift |
+|---|---:|---:|---:|---:|
+| Fixed length | 5,781.67 | 5,762.08 | -0.339% | +0.177% |
+| Mixed lengths | 3,619.28 | 3,645.82 | +0.733% | -0.139% |
+
+Mixed paired gains were +0.641%, +0.932%, +0.653%. Fixed paired changes were
+-1.040%, +0.235%, -0.326%; the fixed result is inconclusive and includes a small
+aggregate regression. Three-wave bootstrap ranges are [-1.040%, +0.235%] fixed
+and [+0.641%, +0.932%] mixed; they do not estimate cross-day/machine variation.
+This option is not a uniform throughput improvement.
+
+The isolated complete sampler call at vocabulary 100278 measured about
+134.11 → 63.35 microseconds at batch64 (78.73 → 54.57 at16, 74.56 → 56.70 at1).
+Those microbenchmarks are not whole-engine gains. Separate 64-step profiles show
+outside-graph GPU kernel work **0.2660 → 0.2123 ms/step**. Both custom selection
+kernels execute once per step outside the graph; the graph retains 625 kernels
+and essentially unchanged summed work (8.179 → 8.180 ms). Profiled elapsed spans
+moved the other direction, so use unprofiled waves for the throughput conclusion.
+No sampler graph-capture speedup is claimed.
+
+All 384 trajectories / **1,035,090 token IDs and logprobs** exactly match both
+controls. The completed common Core reference, reused after model/input/trajectory
+hash validation, gives:
+
+| Trainer comparison, same trajectories | Control | Candidate | Added cost |
+|---|---:|---:|---:|
+| Mean absolute logprob error, nats/token | 0.03694615 | 0.03694615 | 0 |
+| Signed serving minus trainer mean | +0.00201359 | +0.00201359 | 0 |
+| p95 absolute error | 0.13185763 | 0.13185763 | 0 |
+| p99 absolute error | 0.23219654 | 0.23219654 | 0 |
+| Maximum absolute error | 3.29934740 | 3.29934740 | 0 |
+| Probability ratio outside [0.8, 1.2] | 1.64720% | 1.64720% | 0 percentage points |
+
+Unchanged divergence is not zero absolute trainer error. Core `e505356` used
+BF16 eval, natural routing, torch attention and one full request per document.
+B300, compositions and real-RL route-replay/learning-quality effects remain
+unmeasured. Forced-token scoring alone would not prove sampler correctness;
+this panel used ordinary free sampling, and separate RNG checks were performed.
+
+Validation: portable suite156 passed/115 CUDA cases skipped locally; pinned Ruff
+passes. GPU precheck passed240 repeated draws with exactly matching samples and
+final CUDA RNG states across batches1/16/64 and vocabularies2/33/512/100278.
+Crafted cross-partition ties, infinities/NaNs, invalid flags and changed-input graph
+replay of the selection kernel also passed. Tested Torch2.13.0+cu130/Triton3.7.1.
+Runtime source/configuration hashes, requested mode and actual custom-kernel
+dispatch were verified. Candidate `b2bcc96`, baseline `70abc4ad`; later changes
+are result documentation only. BF16 TP1/EP1, memory0.7, context12288, prefill8192,
+full decode graphs, radix/Mamba cache, route capture/return, original logprobs,
+temperature1/top_p1/top_k-1. Three fixed and three mixed waves. Startup, warmup
+and profiling excluded from throughput; prefill and drain included.
+
+Runs:
+
+1. Completed H100 panel, RNG checks and profiles, process runtime16m24s:
+   [Beaker](https://beaker.org/ex/01M5QN43B7H4K343V77ACTX4EE).
+   Payload `01M5QKSRY6KR12QZ173ZD0KV6Z`; result `01M5QN43BENREX7PJKAHGHE9KV`.
+2. Common trainer reference, 384 trajectories / 1,035,090 tokens,94 seconds:
+   [Beaker](https://beaker.org/ex/01M5QH3K0YFW17Z7J7W709V53G).
+   Result `01M5QH3K19XS37AFA3DTAJGW7F`.
+
+Raw profiles, vectors, source manifest, audit, sampler microtimings and trainer
+comparison are under `runs/issue31-decode-menu-20261024/03-sampler` in the
+open-instruct workspace. This is a default-off building block for review; no
+production image or default was changed.
