@@ -24,15 +24,27 @@ def _silu_mul(X, Y, WIDTH: tl.constexpr, TOTAL: tl.constexpr, BLOCK: tl.constexp
     tl.store(Y + offset, (rounded * up).to(tl.bfloat16), offset < TOTAL)
 
 
-def silu_mul(value):
+def silu_mul(value, out=None):
+    """``silu(gate) * up`` with each operation rounded to BF16, as separate ops would."""
+    if value.ndim != 2 or value.dtype != torch.bfloat16:
+        raise ValueError("silu_mul requires a 2D BF16 [rows, 2 * width] tensor")
+    value = value.contiguous()
     width = value.shape[-1] // 2
-    output = torch.empty(
-        (value.shape[0], width), device=value.device, dtype=value.dtype
-    )
-    _silu_mul[(triton.cdiv(output.numel(), 256),)](
-        value, output, width, output.numel(), 256, enable_fp_fusion=False
-    )
-    return output
+    if out is None:
+        out = torch.empty(
+            (value.shape[0], width), device=value.device, dtype=value.dtype
+        )
+    elif (
+        out.shape != (value.shape[0], width)
+        or out.dtype != value.dtype
+        or not out.is_contiguous()
+    ):
+        raise ValueError("silu_mul out must be a contiguous BF16 [rows, width] tensor")
+    if out.numel():
+        _silu_mul[(triton.cdiv(out.numel(), 256),)](
+            value, out, width, out.numel(), 256, enable_fp_fusion=False
+        )
+    return out
 
 
 @triton.jit

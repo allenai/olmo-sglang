@@ -28,6 +28,12 @@ from the same inputs; small differences can affect downstream expert routing.
 Reduction order and grouped versus separate matrix multiplications can introduce
 additional differences.
 
+The dense MLP, the shared expert, and the fallback for unaligned routed widths
+apply SwiGLU through `rounding_kernels.silu_mul` on BF16 CUDA tensors. That
+kernel rounds `silu(gate)` to BF16 before the product, so it is bitwise equal to
+the separate operations (exhaustively tested over finite BF16 gates) while
+launching one kernel instead of three.
+
 [Core-compatible execution modes](core-compat.md) provide explicit arithmetic
 controls for investigating these differences. They do not guarantee bitwise
 agreement for arbitrary batch shapes, cached decoding, or hardware. Measure
