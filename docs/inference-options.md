@@ -123,10 +123,11 @@ not each incur an independent Python launch during graph replay.
 
 ## Next building blocks to measure
 
-These are candidates, **not implemented options or measured speedups**. Component
-budgets below describe existing work; they are not savings forecasts and cannot
-be added together. Each implemented arithmetic option should have an explicit
-switch, a documented default, and its own throughput/agreement row.
+This table records the initial candidate list. Measured opt-in implementations
+available on this branch are documented below; the other entries remain proposals.
+Component budgets describe existing work, not savings forecasts, and cannot be
+added together. Each implemented arithmetic option needs an explicit switch,
+a documented default, and its own throughput/agreement row.
 
 | Candidate | Concrete change | Evidence and tradeoff to measure |
 |---|---|---|
@@ -167,3 +168,74 @@ for the first pass are retained in `runs/issue31-20261023` in the open-instruct
 workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
+
+### Investigation: routing-tail fusion — measured H100 option
+
+`OLMO_SGLANG_ROUTING_TAIL=fused` opts into a combined selected-weight L1
+normalization, scaling, and int32 index conversion. Default is `torch`; restart
+the engine when changing captured graphs. Softmax and top-k remain PyTorch.
+CUDA top-16 with L1 or no normalization is supported; CPU, other top-k sizes and
+other norms retain the tensor path. The full `OLMO_SGLANG_ROUTING_KERNELS=fused`
+option (#10) takes precedence and bypasses this tail. The pre-MLP FP32 copy is
+unchanged and is a separate investigation.
+
+The completed H100 C64 control/candidate/control panel measured:
+
+| Frozen workload | Bracketed control tokens/s | Candidate tokens/s | Change | Closing-control drift |
+|---|---:|---:|---:|---:|
+| Fixed length | 5,798.14 | 5,801.57 | +0.059% | +0.168% |
+| Mixed lengths | 3,627.09 | 3,662.80 | +0.985% | +0.241% |
+
+Mixed paired gains were +1.073%, +0.957%, and +0.926%. The three-wave bootstrap
+range is +0.926% to +1.073%; this short panel does not establish variability
+across machines or days. Fixed paired gains were -2.889%, +1.332%, and +1.607%,
+so the fixed aggregate is inconclusive. Do not report a uniform 1% speedup.
+
+The separate 64-step trace confirms **625 → 580 graph kernels per step** and
+**8.176 → 8.108 ms** summed graph GPU work (about 68.5 microseconds removed).
+That sum includes the profile's ramp and is not end-to-end latency. Unprofiled
+whole-wave throughput includes prefill and drain; startup/warmup/profiling are
+excluded. All 384 trajectories / **1,035,090 token IDs and logprobs** exactly
+match both controls. A completed common OLMo-core scoring pass verifies:
+
+| Trainer comparison, same trajectories | Control | Candidate | Added cost |
+|---|---:|---:|---:|
+| Mean absolute logprob error, nats/token | 0.03694615 | 0.03694615 | 0 |
+| Signed serving minus trainer mean | +0.00201359 | +0.00201359 | 0 |
+| p95 absolute error | 0.13185763 | 0.13185763 | 0 |
+| p99 absolute error | 0.23219654 | 0.23219654 | 0 |
+| Maximum absolute error | 3.29934740 | 3.29934740 | 0 |
+| Probability ratio outside [0.8, 1.2] | 1.64720% | 1.64720% | 0 percentage points |
+
+Unchanged error is not zero absolute trainer error. The reference uses Core
+`e505356`, BF16 eval, natural routing, torch attention and one full request per
+document. It is not a real-RL route-replay or learning-quality result. Reference
+trajectory/input/model hashes were checked before reuse. B300 and combinations
+with other new options remain unmeasured.
+
+Validation: pinned Ruff checks pass; portable suite 157 passed, 120 CUDA cases
+skipped locally. The pinned GPU precheck passed 123 exact cases, covering row
+counts 1–8192, normalization/scaling variants, extreme/zero values and changed
+inputs under graph replay. Runtime Python/JSON hashes and option dispatch were
+verified. Baseline source `70abc4ad`; tested candidate `d53c8430` (later changes
+are result documentation only). BF16 TP1/EP1, memory fraction 0.7, context 12288,
+prefill chunk 8192, full decode graphs, radix/Mamba cache, capture and return of
+routes, original logprobs, PyTorch sampling, three fixed and three mixed waves.
+
+Runs:
+
+1. Completed protected H100 panel and profiles, process runtime 16m35s:
+   [Beaker](https://beaker.org/ex/01M5QJZ8APPEQXPD5BDZQ1S47V).
+   Payload `01M5QHJWDFE3A4TSVMEQJ6SMPT`; result `01M5QJZ8AYFGCT9WH4QXDBX04S`.
+2. Earlier unallocated attempt was preempted after opening control and candidate,
+   during closing control: [Beaker](https://beaker.org/ex/01M5QHTQND4K7XN8P6AZTPGD26).
+   Its numerics/profile agree with the repeat, but its incomplete bracket is not
+   the reported throughput result. Result `01M5QHTQNTVJABYGVFC9XV120H`.
+3. Common trainer reference, 384 trajectories / 1,035,090 tokens, 94 seconds:
+   [Beaker](https://beaker.org/ex/01M5QH3K0YFW17Z7J7W709V53G).
+   Result `01M5QH3K19XS37AFA3DTAJGW7F`.
+
+Raw profiles, vectors, audit, scorer comparison and attempt ledger are under
+`runs/issue31-decode-menu-20261024/02-routing-tail` in the open-instruct workspace.
+This is a default-off building block for review; no production default or image
+was changed.
