@@ -68,7 +68,15 @@ def test_sparse_mlp_preserves_input_across_fused_experts(monkeypatch, shared):
     )
     inputs = torch.tensor([[1.0, -2.0], [3.0, 4.0]])
     original = inputs.clone()
+    routed, shared_output = model(inputs, separate_shared=True)
+    assert torch.equal(routed, original * 2)
+    if shared:
+        assert torch.equal(shared_output, original * 3)
+    else:
+        assert shared_output is None
     output = model(inputs)
+    provided = model(inputs, router_inputs=inputs.float())
+    assert torch.equal(provided, output)
     # The caller retains inputs as the residual even without a shared expert.
     assert torch.equal(inputs, original)
     assert torch.equal(output, original * (5 if shared else 2))

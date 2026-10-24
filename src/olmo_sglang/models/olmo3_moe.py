@@ -13,6 +13,7 @@ import os
 import re
 from collections.abc import Iterable
 from functools import partial
+from types import SimpleNamespace
 from typing import Any
 
 import torch
@@ -42,7 +43,7 @@ from torch import nn
 from torch.nn import functional as F
 from transformers import PretrainedConfig
 
-from olmo_sglang import core_compat, moe_configs
+from olmo_sglang import core_compat, moe_configs, moe_projections, sampling
 from olmo_sglang.activations import native_silu_and_mul
 from olmo_sglang.attention import (
     PerHeadRMSNorm,
@@ -300,16 +301,78 @@ class Olmo3MoeSparseMLP(nn.Module):
             else None
         )
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        self._pack_moe_projections = (
+            moe_projections.enabled()
+            and parallel.tp_size == 1
+            and parallel.moe_ep_size == 1
+            and quant_config is None
+            and not core_compat.enabled()
+            and self.latent_down_proj is not None
+            and self.shared_expert is not None
+        )
+        self.register_buffer("_packed_projection_weight", None, persistent=False)
+        if self._pack_moe_projections:
+            self._repack_projection_weights()
+
+    def _repack_projection_weights(self):
+        self._packed_projection_weight = moe_projections.pack_weights(
+            self.latent_down_proj, self.shared_expert.gate_up_proj
+        )
+        self._packed_projection_layer = SimpleNamespace(
+            weight=self._packed_projection_weight
+        )
+        self._latent_width = self.latent_down_proj.weight.shape[0]
+
+    def _apply(self, fn, recurse=True):
+        super()._apply(fn, recurse=recurse)
+        if self._pack_moe_projections:
+            self._repack_projection_weights()
+        return self
+
+    def _project_inputs(self, hidden_states):
+        packed = self.latent_down_proj.quant_method.apply(
+            self._packed_projection_layer, hidden_states
+        )
+        return moe_projections.split_latent_and_activate(packed, self._latent_width)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        *,
+        separate_shared: bool = False,
+        router_inputs: torch.Tensor | None = None,
+        is_decode: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor | None]:
         original_shape = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, self.hidden_size)
         # OLMo-core and the exported HF implementation evaluate the router
         # projection in FP32. Casting only the BF16 GEMM result is too late: it
         # can change top-k expert assignments and compounds over sparse layers.
-        router_logits = fp32_router_logits(hidden_states, self.router.gate.weight)
+        if router_inputs is not None and (
+            router_inputs.shape != original_shape
+            or router_inputs.dtype != torch.float32
+            or router_inputs.device != hidden_states.device
+        ):
+            raise ValueError(
+                "router_inputs must be a matching FP32 hidden-state tensor"
+            )
+        router_logits = fp32_router_logits(
+            hidden_states
+            if router_inputs is None
+            else router_inputs.reshape(-1, self.hidden_size),
+            self.router.gate.weight,
+        )
 
+        shared_activation = None
         expert_inputs = hidden_states
-        if self.latent_down_proj is not None:
+        if (
+            self._pack_moe_projections
+            and is_decode
+            and hidden_states.is_cuda
+            and hidden_states.dtype == torch.bfloat16
+        ):
+            expert_inputs, shared_activation = self._project_inputs(hidden_states)
+        elif self.latent_down_proj is not None:
             expert_inputs = self.latent_down_proj(expert_inputs)[0]
 
         topk_output = self.topk(expert_inputs, router_logits)
@@ -325,8 +388,21 @@ class Olmo3MoeSparseMLP(nn.Module):
         if self.latent_up_proj is not None:
             routed_output = self.latent_up_proj(routed_output)[0]
 
+        shared_output = None
         if self.shared_expert is not None:
-            routed_output = routed_output + self.shared_expert(hidden_states)
+            shared_output = (
+                self.shared_expert(hidden_states)
+                if shared_activation is None
+                else self.shared_expert.down_proj(shared_activation)[0]
+            )
+        if separate_shared:
+            return routed_output.reshape(original_shape), (
+                shared_output.reshape(original_shape)
+                if shared_output is not None
+                else None
+            )
+        if shared_output is not None:
+            routed_output = routed_output + shared_output
         return routed_output.reshape(original_shape)
 
 
@@ -578,6 +654,25 @@ class Olmo3MoeDecoderLayer(nn.Module):
         self.post_feedforward_layernorm = _rms_norm_class()(
             config.hidden_size, eps=config.rms_norm_eps
         )
+        shared_add_mode = os.environ.get("OLMO_SGLANG_SHARED_ADD_NORM", "torch")
+        if shared_add_mode not in {"torch", "fused"}:
+            raise ValueError("OLMO_SGLANG_SHARED_ADD_NORM must be 'torch' or 'fused'")
+        self.fuse_shared_add_norm = (
+            shared_add_mode == "fused"
+            and isinstance(self.mlp, Olmo3MoeSparseMLP)
+            and self.mlp.shared_expert is not None
+            and isinstance(self.post_feedforward_layernorm, RoundingRMSNorm)
+            and core_compat.fused_rounding_enabled("norms")
+        )
+        router_input_mode = os.environ.get("OLMO_SGLANG_ROUTER_INPUT", "torch")
+        if router_input_mode not in {"torch", "fused"}:
+            raise ValueError("OLMO_SGLANG_ROUTER_INPUT must be 'torch' or 'fused'")
+        self.fuse_router_input = (
+            router_input_mode == "fused"
+            and isinstance(self.mlp, Olmo3MoeSparseMLP)
+            and isinstance(self.pre_feedforward_layernorm, RoundingRMSNorm)
+            and core_compat.fused_rounding_enabled("norms")
+        )
 
     def forward(
         self,
@@ -597,12 +692,30 @@ class Olmo3MoeDecoderLayer(nn.Module):
         )
 
         residual = hidden_states
-        mlp_inputs = (
-            self.pre_feedforward_layernorm(hidden_states)
-            if self.pre_feedforward_layernorm is not None
-            else hidden_states
-        )
-        mlp_output = self.mlp(mlp_inputs)
+        router_inputs = None
+        if self.fuse_router_input:
+            mlp_inputs, router_inputs = self.pre_feedforward_layernorm(
+                hidden_states, return_fp32=True
+            )
+        else:
+            mlp_inputs = (
+                self.pre_feedforward_layernorm(hidden_states)
+                if self.pre_feedforward_layernorm is not None
+                else hidden_states
+            )
+        # Dense MLPs retain their existing signature; only sparse layers accept
+        # the optional router input and separate shared-expert result.
+        mlp_kwargs = {} if router_inputs is None else {"router_inputs": router_inputs}
+        if isinstance(self.mlp, Olmo3MoeSparseMLP):
+            mlp_kwargs["is_decode"] = forward_batch.forward_mode.is_decode()
+        if self.fuse_shared_add_norm:
+            mlp_output, shared_output = self.mlp(
+                mlp_inputs, separate_shared=True, **mlp_kwargs
+            )
+            return self.post_feedforward_layernorm(
+                mlp_output, residual=residual, pre_add=shared_output
+            )
+        mlp_output = self.mlp(mlp_inputs, **mlp_kwargs)
         return _norm_then_add(self.post_feedforward_layernorm, mlp_output, residual)
 
 
@@ -668,6 +781,11 @@ class Olmo3MoeForCausalLM(nn.Module):
         prefix: str = "",
     ) -> None:
         super().__init__()
+        if sampling.sampler_mode() == "fused":
+            sampling.install(
+                tp_size=get_parallel().tp_size,
+                backend=get_server_args().sampling_backend,
+            )
         with core_compat.model_mode(
             config,
             get_parallel(),

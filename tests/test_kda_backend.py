@@ -481,8 +481,10 @@ def test_packed_kda_decode_matches_torch_reference(allow_neg_eigval):
     query = mixed_qkv[:, :q_end].reshape(batch_size, num_heads, key_dim).float()
     key = mixed_qkv[:, q_end:k_end].reshape(batch_size, num_heads, key_dim).float()
     value = mixed_qkv[:, k_end:].reshape(batch_size, num_heads, value_dim).float()
-    query = torch.nn.functional.normalize(query, dim=-1, eps=1e-6) * scale
-    key = torch.nn.functional.normalize(key, dim=-1, eps=1e-6)
+    query = (query / (query.square().sum(-1, keepdim=True) + 1e-6).sqrt()).to(
+        dtype
+    ).float() * scale
+    key = (key / (key.square().sum(-1, keepdim=True) + 1e-6).sqrt()).to(dtype).float()
     decay = -a_log.exp()[None, :, None] * torch.nn.functional.softplus(
         raw_gate.float() + dt_bias[None]
     )
@@ -610,8 +612,10 @@ def test_packed_kda_decode_cuda_graph_replays_new_inputs():
     value = (
         replay_mixed_qkv[:, k_end:].reshape(batch_size, num_heads, value_dim).float()
     )
-    query = torch.nn.functional.normalize(query, dim=-1, eps=1e-6) * scale
-    key = torch.nn.functional.normalize(key, dim=-1, eps=1e-6)
+    query = (query / (query.square().sum(-1, keepdim=True) + 1e-6).sqrt()).to(
+        dtype
+    ).float() * scale
+    key = (key / (key.square().sum(-1, keepdim=True) + 1e-6).sqrt()).to(dtype).float()
     decay = -a_log.exp()[None, :, None] * torch.nn.functional.softplus(
         replay_gate.float() + dt_bias[None]
     )
