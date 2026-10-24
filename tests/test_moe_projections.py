@@ -122,7 +122,12 @@ def test_sparse_constructor_keeps_packing_in_default_rounding_mode():
             mock.patch.object(models, "_log_ep_parallelism", return_value=(0, 512)),
             runtime.get_context().override_server_args(),
             runtime.get_parallel().override(
-                tp_size=1, tp_rank=0, attn_tp_size=1, attn_tp_rank=0
+                tp_size=1,
+                tp_rank=0,
+                attn_tp_size=1,
+                attn_tp_rank=0,
+                moe_ep_size=1,
+                moe_ep_rank=0,
             ),
             torch.device("cuda"),
         ):
