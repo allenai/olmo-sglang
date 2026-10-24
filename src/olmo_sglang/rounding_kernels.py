@@ -13,7 +13,8 @@ from triton.language.extra.cuda import libdevice
 
 
 @triton.jit
-def _silu_mul(X, Y, WIDTH: tl.constexpr, TOTAL: tl.constexpr, BLOCK: tl.constexpr):
+def _silu_mul(X, Y, WIDTH: tl.constexpr, TOTAL, BLOCK: tl.constexpr):
+    # A runtime mask bound reuses the kernel across unseen prefill lengths.
     offset = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
     row, col = offset // WIDTH, offset % WIDTH
     gate = tl.load(X + row * (2 * WIDTH) + col, offset < TOTAL, 0).to(tl.float32)
