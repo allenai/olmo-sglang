@@ -39,12 +39,25 @@ tokens scored by the pinned OLMo-core model, three arms in one job):
 
 The BF16 rounding removes the systematic decode bias relative to both the trainer
 and prefill; the mean absolute error is unchanged (prompt-clustered 95% interval
-on the change: -4.8e-5 to +1.3e-4 nats). Decode and prefill-mode scoring differ
-from each other by 0.0358 nats/token on the same tokens, as much as either differs
-from OLMo-core, so the remaining divergence is accumulation-order noise shared by
-any two implementations of this model rather than a KDA-specific mismatch.
-Outlier-rate differences of a few hundredths of a percentage point are within
-that noise.
+on the change: -4.8e-5 to +1.3e-4 nats). The outlier rate rises by a small but
+measurable amount: +0.044 percentage points with a paired prompt-clustered 95%
+interval of +0.019 to +0.071, about four extra tokens per 10,000 outside the
+[0.8, 1.2] ratio band. The change is therefore a documented trade-off (bias
+removed, slightly more clipped tokens), not a uniform improvement.
+
+Per-token errors are uncorrelated along a sequence (lag-1 autocorrelation within
+0.001 of zero), so they add like independent noise: at 1,024 tokens the standard
+deviation of the summed per-sequence error is 2.1 nats against an independence
+prediction of 2.06. The bias does not average out: with FP32 query/key the mean
+summed error over a 1,024-token response was +2.27 nats, as large as the random
+spread; with BF16 query/key it is +0.41 nats.
+
+Decode and prefill-mode scoring differ from each other by 0.0358 nats/token on
+the same tokens, as much as either differs from OLMo-core. Three implementations
+being pairwise equidistant is what independent accumulation-order noise produces,
+and it is the leading explanation for the remaining 0.037, but it does not rule
+out a smaller shared component underneath. Distinguishing the two would need a
+lower-noise reference (for example FP32 rescoring), not more BF16 arms.
 
 ## SwiGLU rounding
 
