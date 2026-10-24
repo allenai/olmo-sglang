@@ -181,7 +181,9 @@ The existing named parameters become views into one persistent packed buffer;
 checkpoint loaders and in-place online copies continue updating those parameters.
 Device/dtype moves rebuild the views before graph capture. The second-stage gate
 projections and their BF16 inputs remain separate, including the output gate's
-bias. No per-step weight concatenation is performed. Changing GEMM shapes may
+bias. The recurrence accepts beta's padded row stride directly; a non-unit head
+stride still takes the contiguous fallback. No per-step weight concatenation is
+performed. Changing GEMM shapes may
 change rounding, so this option needs measured common-token trainer divergence.
 GPU loader/refresh/graph tests and the frozen whole-engine benchmark are pending;
 there is no throughput or agreement claim yet.
