@@ -167,3 +167,16 @@ for the first pass are retained in `runs/issue31-20261023` in the open-instruct
 workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
+
+### Investigation: FP32 router input from the pre-MLP norm
+
+`OLMO_SGLANG_ROUTER_INPUT=fused` opts into emitting both the ordinary BF16
+pre-MLP norm output and its exact FP32 widening from the norm kernel. The router
+uses the FP32 buffer; expert and shared-expert inputs keep the BF16 buffer.
+Default is `torch`. Set the option before engine startup and restart to change
+captured graphs. It applies to sparse layers with a pre-MLP fused rounding norm;
+other configurations retain the ordinary cast. This is separate from routing-tail
+fusion and the full fused router option.
+
+Status: implementation and portable tests prepared. GPU arithmetic, throughput
+and same-token trainer-divergence measurements are pending; no gain claimed.
