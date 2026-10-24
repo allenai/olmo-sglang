@@ -336,8 +336,12 @@ class Olmo3MoeSparseMLP(nn.Module):
         return moe_projections.split_latent_and_activate(packed, self._latent_width)
 
     def forward(
-        self, hidden_states: torch.Tensor, *, separate_shared: bool = False,
-        router_inputs: torch.Tensor | None = None, is_decode: bool = False,
+        self,
+        hidden_states: torch.Tensor,
+        *,
+        separate_shared: bool = False,
+        router_inputs: torch.Tensor | None = None,
+        is_decode: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor | None]:
         original_shape = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, self.hidden_size)

@@ -185,7 +185,9 @@ class CoreRMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.variance_epsilon = eps
 
-    def forward(self, value, residual=None, scale=None, pre_add=None, return_fp32=False):
+    def forward(
+        self, value, residual=None, scale=None, pre_add=None, return_fp32=False
+    ):
         """Core RMS norm; ``scale`` multiplies the input first, ``residual`` is added after.
 
         Both are the separate tensor operations OLMo-core performs around the

@@ -245,7 +245,9 @@ def _rms_norm(
         tl.store(FP32_Y + row * WIDTH + col, output.to(tl.float32), col < WIDTH)
 
 
-def rms_norm(value, weight, eps, residual=None, scale=None, pre_add=None, return_fp32=False):
+def rms_norm(
+    value, weight, eps, residual=None, scale=None, pre_add=None, return_fp32=False
+):
     """RMS norm with Core's rounding; optionally ``scale`` the input and add ``residual``.
 
     ``scale`` reproduces ``value * scale`` as a separate BF16 multiply before the
