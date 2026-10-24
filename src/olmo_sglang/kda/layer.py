@@ -23,6 +23,8 @@ from sglang.srt.utils import add_prefix, set_weight_attrs
 from torch import nn
 from transformers import PretrainedConfig
 
+from olmo_sglang.kda import gate_projections
+
 
 class Olmo3MoeKDAAttention(nn.Module):
     """KDA layer matching the Megatron-converted OLMo checkpoint contract."""
@@ -116,6 +118,11 @@ class Olmo3MoeKDAAttention(nn.Module):
             tp_size=attn_tp_size,
             prefix=add_prefix("g_proj_2", prefix),
         )
+        self._group_kda_gates = (
+            gate_projections.projection_mode() == "grouped"
+            and attn_tp_size == 1
+            and quant_config is None
+        )
 
         self.qkv_conv1d = MergedColumnParallelLinear(
             input_size=self.conv_size,
@@ -169,9 +176,26 @@ class Olmo3MoeKDAAttention(nn.Module):
     ) -> torch.Tensor:
         del positions
         mixed_qkv = self.qkv_proj(hidden_states)[0]
-        raw_gate = self.f_proj_2(self.f_proj_1(hidden_states)[0])[0]
-        raw_beta = self.beta_proj(hidden_states)[0]
-        output_gate = self.g_proj_2(self.g_proj_1(hidden_states)[0])[0]
+        if (
+            self._group_kda_gates
+            and forward_batch.forward_mode.is_decode()
+            and hidden_states.is_cuda
+            and hidden_states.dtype == torch.bfloat16
+        ):
+            first_gate = self.f_proj_1(hidden_states)[0]
+            raw_beta = self.beta_proj(hidden_states)[0]
+            first_output_gate = self.g_proj_1(hidden_states)[0]
+            raw_gate, output_gate = gate_projections.project(
+                first_gate,
+                first_output_gate,
+                self.f_proj_2.weight,
+                self.g_proj_2.weight,
+                self.g_proj_2.bias,
+            )
+        else:
+            raw_gate = self.f_proj_2(self.f_proj_1(hidden_states)[0])[0]
+            raw_beta = self.beta_proj(hidden_states)[0]
+            output_gate = self.g_proj_2(self.g_proj_1(hidden_states)[0])[0]
 
         if not forward_batch.forward_mode.is_decode():
             raw_gate = raw_gate.unflatten(

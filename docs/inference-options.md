@@ -167,3 +167,29 @@ for the first pass are retained in `runs/issue31-20261023` in the open-instruct
 workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
+
+### Grouped second-stage KDA gate projections (investigation)
+
+`OLMO_SGLANG_KDA_GATE_PROJECTIONS=grouped` selects a single Triton launch
+containing the two second-stage gate GEMMs during TP1, unquantized BF16 CUDA
+decode. The default is `torch`. Prefill and unsupported configurations retain
+the original calls. Restart the engine when changing the option.
+
+The forget and output gates read distinct first-stage inputs. This implementation
+groups their tiles without introducing zero-filled blocks or doubling arithmetic.
+It preserves both BF16 intermediate tensors and the output-gate bias, and writes
+two contiguous BF16 results. It reads the original parameter tensors directly;
+there is no packed copy or new checkpoint mapping. Different tensor-core reduction
+and bias handling may change rounding, so agreement must be measured.
+
+This is evaluated independently of first-stage QKV/f1/beta/g1 packing and
+latent/shared-expert packing. It targets one fewer GEMM launch in each of the
+14 KDA layers; the full-engine trace confirms 625 → 611 graph kernels per step.
+GPU checks pass. The independent H100 panel measures +0.400% fixed-length and
++0.669% mixed-length throughput, with all 1,035,090 output tokens/logprobs exactly
+equal against both controls and zero added Core-error metrics. The fixed gain is
+small and varies across waves; see the
+[investigation record](kda-grouped-gates-investigation.md) for uncertainty,
+qualification scope and raw evidence. Other models/hardware are not qualified.
+First-stage and second-stage packing touch the same KDA forward path, so their
+composition requires integration and another measurement.
