@@ -307,7 +307,6 @@ class Olmo3MoeSparseMLP(nn.Module):
             and parallel.moe_ep_size == 1
             and quant_config is None
             and not core_compat.enabled()
-            and not core_compat.rounding_enabled()
             and self.latent_down_proj is not None
             and self.shared_expert is not None
         )

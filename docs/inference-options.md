@@ -174,9 +174,10 @@ result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
 `OLMO_SGLANG_MOE_PROJECTIONS=packed` opts into a shared GEMM for the latent
 expert input and the shared expert's gate/up projection. The default is `torch`.
 The packed path requires BF16 CUDA decode, TP1/EP1, unquantized weights, both
-latent and shared branches, and the ordinary optimized model path. Prefill,
-Core-compatibility/rounding modes, and other unsupported configurations retain
-the original calls. Restart the engine when changing the option.
+latent and shared branches. It supports the automatically selected rounding mode
+and the ordinary optimized path. Prefill, the full eager Core-reference mode,
+and other unsupported configurations retain the original calls. Restart the
+engine when changing the option.
 
 The original named Parameter objects and checkpoint loaders are retained as
 contiguous row views into one persistent buffer. Device/dtype moves rebuild those
@@ -196,4 +197,6 @@ divergence still need GPU measurement; no gain or agreement claim is made yet.
 Portable storage, partial-load, output-layout, and default-path tests pass.
 CUDA checks are prepared for strided/empty outputs, all finite BF16 activation
 inputs, actual SGLang checkpoint loading, changed inputs, and graph replay after
-weight updates. Those GPU checks and the frozen full-engine panel are pending.
+weight updates. A constructor check also verifies that the option remains active
+after the default rounding-mode context exits. Those GPU checks and the frozen
+full-engine panel are pending.

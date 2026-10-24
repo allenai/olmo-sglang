@@ -1,14 +1,16 @@
 """Packed MoE storage, output layout, checkpoint refresh and graph contracts."""
 
+import os
 from importlib import import_module
 from types import SimpleNamespace
+from unittest import mock
 
 import pytest
 import torch
 from torch import nn
 from torch.nn import functional as F
 
-from olmo_sglang import moe_projections
+from olmo_sglang import core_compat, moe_projections
 
 
 def test_mode_and_live_parameter_storage(monkeypatch):
@@ -80,6 +82,73 @@ def test_cuda_split_activation_exact_for_strides_empty_and_all_bf16_values():
         )
         torch.testing.assert_close(actual_latent, latent_source, rtol=0, atol=0)
         torch.testing.assert_close(actual, F.silu(gate) * up, rtol=0, atol=0)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="SGLang CUDA runtime required"
+)
+def test_sparse_constructor_keeps_packing_in_default_rounding_mode():
+    runtime = import_module("sglang.srt.runtime_context")
+    models = import_module("olmo_sglang.models.olmo3_moe")
+    config = SimpleNamespace(
+        **core_compat._ROUNDING_PROFILE,
+        dense_layers_indices=[0],
+        layer_types=(["linear_attention"] * 7 + ["full_attention"]) * 2,
+    )
+    args = SimpleNamespace(
+        dtype="bfloat16",
+        cuda_graph_backend_decode="full",
+        cuda_graph_backend_prefill="disabled",
+        moe_runner_backend="triton",
+        speculative_algorithm=None,
+        enable_torch_compile=False,
+    )
+    original_dtype = torch.get_default_dtype()
+    try:
+        torch.set_default_dtype(torch.bfloat16)
+        # Only the expert allocation/logging are stubbed: the real constructor,
+        # auto selector, native projections and packed storage run unchanged.
+        with (
+            mock.patch.dict(
+                os.environ,
+                {
+                    moe_projections.OPTION: "packed",
+                    core_compat.ENVIRONMENT_VARIABLE: "auto",
+                },
+            ),
+            mock.patch.object(
+                models, "RoundingExperts", side_effect=lambda **kwargs: nn.Identity()
+            ) as experts,
+            mock.patch.object(models, "_log_ep_parallelism", return_value=(0, 512)),
+            runtime.get_context().override_server_args(),
+            runtime.get_parallel().override(
+                tp_size=1, tp_rank=0, attn_tp_size=1, attn_tp_rank=0
+            ),
+            torch.device("cuda"),
+        ):
+            with core_compat.model_mode(
+                config, runtime.get_parallel(), args, None, dtype=torch.bfloat16
+            ) as selected:
+                assert selected == "rounding"
+                module = models.Olmo3MoeSparseMLP(
+                    config, layer_id=1, quant_config=None, prefix=""
+                )
+                experts.assert_called_once()
+                assert module._pack_moe_projections
+            assert core_compat.mode() == "off"
+            assert module._pack_moe_projections  # retained after auto context exits
+            assert module._packed_projection_weight.shape == (2560, 1024)
+            for weight in [
+                module.latent_down_proj.weight,
+                module.shared_expert.gate_up_proj.weight,
+            ]:
+                assert weight.is_contiguous()
+                assert (
+                    weight.untyped_storage().data_ptr()
+                    == module._packed_projection_weight.data_ptr()
+                )
+    finally:
+        torch.set_default_dtype(original_dtype)
 
 
 @pytest.mark.skipif(
