@@ -203,3 +203,33 @@ def test_shared_add_norm_preserves_bf16_boundary_and_graph_replay(width, tokens)
                 torch.testing.assert_close(
                     actual, residual + norm(value + shared), rtol=0, atol=0
                 )
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+def test_core_norm_auxiliary_fp32_is_widened_final_output(dtype):
+    torch.manual_seed(721)
+    norm = core_compat.CoreRMSNorm(128, 1e-6).to(dtype=dtype)
+    value = torch.randn(17, 128).to(dtype)
+    residual = torch.randn_like(value)
+    with torch.no_grad():
+        expected = norm(value, residual=residual, scale=1.7)
+        actual, fp32 = norm(value, residual=residual, scale=1.7, return_fp32=True)
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    assert fp32.dtype == torch.float32
+    torch.testing.assert_close(fp32, expected.float(), rtol=0, atol=0)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("width", [64, 1024, 1280, 4096, 8192])
+@pytest.mark.parametrize("tokens", [1, 64, 673])
+def test_fused_norm_fp32_output_preserves_bf16_rounding(width, tokens):
+    kernels = import_module("olmo_sglang.rounding_kernels")
+    torch.manual_seed(722)
+    value = torch.randn(tokens, width, device="cuda", dtype=torch.bfloat16)
+    norm = core_compat.CoreRMSNorm(width, 1e-6).cuda().bfloat16()
+    with torch.no_grad():
+        norm.weight.uniform_(0.5, 1.5)
+        expected = norm(value)
+        actual, fp32 = kernels.rms_norm(value, norm.weight, 1e-6, return_fp32=True)
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    torch.testing.assert_close(fp32, expected.float(), rtol=0, atol=0)
