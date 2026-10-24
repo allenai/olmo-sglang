@@ -1,5 +1,5 @@
 {
-  "status": "in_progress",
+  "status": "complete",
   "baseline": "70abc4a",
   "sglang": "3145136dcd1238754e0ea2b2ffd546532119c71c",
   "hardware": "one H100 per panel, same device for before/candidate/after; separate panels can use different H100s",
@@ -753,6 +753,128 @@
       ]
     },
     {
+      "name": "KDA grouped second-stage gates",
+      "pr": "https://github.com/allenai/olmo-sglang/pull/26",
+      "experiment": "01M5R1JP7997A79YE6P4HGSKR0",
+      "result_dataset": "01M5R1JP7JAVHGNX9KBRQGSCNY",
+      "analysis_dataset": "01M5R2M2P60RTV1QTA0FHJ0A93",
+      "provenance": {
+        "baseline-before": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        },
+        "candidate": {
+          "source": "c98f11470255a54c94aad9cec813a97c307e6187",
+          "mode": "grouped",
+          "files_verified": 32
+        },
+        "baseline-after": {
+          "source": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+          "mode": "torch",
+          "files_verified": 30
+        }
+      },
+      "throughput_cells": [
+        {
+          "panel": "fixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 5785.162551130635,
+          "baseline_after_tps": 5799.105606403247,
+          "bracketed_baseline_tps": 5792.12568769779,
+          "candidate_tps": 5815.269012022702,
+          "throughput_change_fraction": 0.003995652990415266,
+          "paired_wave_change_fractions": [
+            0.00037579358461337087,
+            0.009283617234841612,
+            0.0012200900191994268
+          ],
+          "baseline_after_vs_before_fraction": 0.002410140622563395,
+          "paired_wave_bootstrap_95pct": [
+            0.00037579358461337087,
+            0.009283617234841612
+          ]
+        },
+        {
+          "panel": "mixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 3617.654949033748,
+          "baseline_after_tps": 3617.680036557384,
+          "bracketed_baseline_tps": 3617.667492752072,
+          "candidate_tps": 3641.8837849862443,
+          "throughput_change_fraction": 0.006693896628888307,
+          "paired_wave_change_fractions": [
+            0.007956903309925822,
+            0.0065555570993456325,
+            0.00564368930187964
+          ],
+          "baseline_after_vs_before_fraction": 6.934747506237571e-06,
+          "paired_wave_bootstrap_95pct": [
+            0.00564368930187964,
+            0.007956903309925822
+          ]
+        }
+      ],
+      "vectors": {
+        "candidate": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        },
+        "baseline-after": {
+          "requests": 384,
+          "tokens": 1035090,
+          "trajectories_with_changed_ids": 0,
+          "changed_logprobs_on_identical_trajectories": 0,
+          "exact": true,
+          "max_abs_logprob_change_on_identical_trajectories": 0.0
+        }
+      },
+      "trainer_baseline": {
+        "mean_abs": 0.03694615088772125,
+        "signed_mean": 0.002013588094103423,
+        "p95_abs": 0.1318576335906979,
+        "p99_abs": 0.23219653606414786,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.016471997604073075
+      },
+      "trainer_change": {
+        "mean_abs": 0.0,
+        "signed_mean": 0.0,
+        "p95_abs": 0.0,
+        "p99_abs": 0.0,
+        "max_abs": 0.0,
+        "outside_20pct": 0.0
+      },
+      "audit_sha256": "d36f61f3b14e3838e4d139ab98778e5fa39330f98228ec66e11355b0d6e62d2a",
+      "trainer_audit_sha256": "7d95b68c9662b44701f3eacc8332ffc78c2f559ce567e2edc20b76d61397aee8",
+      "final_job": "01M5R1JPCBJJMYYMQZCEGJT2N7",
+      "finalized_at": "2026-10-24T23:04:36.308396Z",
+      "process_seconds": 976.346969,
+      "phase_seconds": [
+        {
+          "name": "baseline-before",
+          "code": 0,
+          "seconds": 325.902509350999
+        },
+        {
+          "name": "candidate",
+          "code": 0,
+          "seconds": 314.60307661400293
+        },
+        {
+          "name": "baseline-after",
+          "code": 0,
+          "seconds": 310.44405592701514
+        }
+      ]
+    },
+    {
       "name": "q/k BF16 rounding boundary",
       "pr": "https://github.com/allenai/olmo-sglang/pull/21",
       "experiment": "01M5QY1TE4BQRW8BYFCVHFFACB",
@@ -910,7 +1032,5 @@
       "analysis_dataset": "01M5QZWDFAQGCP8Y2A5HR2MKME"
     }
   ],
-  "remaining": [
-    "grouped second-stage KDA gates whole-engine panel running; GPU checks passed"
-  ]
+  "remaining": []
 }

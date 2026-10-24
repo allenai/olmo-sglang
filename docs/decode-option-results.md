@@ -6,14 +6,13 @@ the first-pass defaults in #15 and the default-off fused router in #10. The new
 kernel switches below are on their linked draft branches, not yet on main as of
 2026-10-24. MessagePack is already an option in the pinned SGLang runtime.
 
-This document is in progress: the grouped second-stage gate investigation is
-not yet complete. No combined
-speedup or real-RL quality result is claimed.
+All nine independent investigations below are complete. The candidate PRs
+remain drafts for review. No combined speedup or real-RL quality result is claimed.
 
 ## Measured options
 
 Each row compares its option independently with a before/after control on one
-H100. The first seven rows have exactly matching output tokens and logprobs
+H100. The first eight rows have exactly matching output tokens and logprobs
 on 384 requests / 1,035,090 output tokens, against both controls. Therefore every
 incremental trainer-error and ratio-outlier metric is zero on those trajectories.
 This is observed equality on the tested checkpoint/runtime/workload, not a
@@ -29,6 +28,7 @@ and has a separate paired scoring result below.
 | MessagePack IPC, preserving route return | `SGLANG_USE_PICKLE_IPC=false` | +0.855% | +0.192%, inconclusive | [PR #22](https://github.com/allenai/olmo-sglang/pull/22) |
 | KDA first-stage QKV/f1/beta/g1 packing | `OLMO_SGLANG_KDA_PROJECTIONS=packed` | +1.786% | +2.207% | [PR #23](https://github.com/allenai/olmo-sglang/pull/23) |
 | Latent/shared-expert projection packing | `OLMO_SGLANG_MOE_PROJECTIONS=packed` | +0.759% | +0.766% | [PR #25](https://github.com/allenai/olmo-sglang/pull/25) |
+| Grouped second-stage KDA gates | `OLMO_SGLANG_KDA_GATE_PROJECTIONS=grouped` | +0.400% | +0.669% | [PR #26](https://github.com/allenai/olmo-sglang/pull/26) |
 | Q/k BF16 rounding boundary | Source change in PR #21; no switch | +0.419%, small | -0.211%, inconclusive | [Common-panel investigation](qk-rounding-common-panel.md) |
 
 The new optional kernel switches default to `torch`; SGLang IPC defaults to pickle. Set
@@ -40,8 +40,8 @@ unsupported sampling modes; KDA packing is TP1/unquantized/BF16 CUDA decode only
 The shared-add result is small and sensitive to drift: its fixed-length closing
 control moves +0.910%, versus the observed +0.843% treatment gain. The other
 fixed-length drifts are +0.168% routing tail, -0.538% router input, +0.177% sampler,
-+0.388% MessagePack, -0.514% KDA first-stage packing and -0.368% latent/shared
-packing. The linked rows and
++0.388% MessagePack, -0.514% KDA first-stage packing, -0.368% latent/shared
+packing and +0.241% grouped gates. The linked rows and
 [machine-readable measurements](data/decode-option-results-20261024.json)
 retain individual waves, bracketing throughput, drift and three-wave bootstrap
 intervals. Three waves do not characterize variation across machines and days.
