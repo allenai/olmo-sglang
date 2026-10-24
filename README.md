@@ -91,6 +91,12 @@ register()
 See [getting started](docs/getting-started.md) for complete server, tokenizer,
 and embedded-engine examples.
 
+Expert routing keeps the existing tensor path by default. Optional
+`OLMO_SGLANG_ROUTING_KERNELS=fused` reduces routing kernel launches but showed a
+small increase in trainer disagreement in the H100 screen. See the
+[measured tradeoff and enable/disable instructions](docs/core-compat.md#optional-fused-router-top-k)
+before opting in.
+
 ## Documentation
 
 | Document | Contents |

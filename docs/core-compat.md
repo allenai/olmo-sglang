@@ -128,3 +128,60 @@ agreement for arbitrary cached decoding. Keep probability comparisons separate
 from performance measurements.
 The diagnostic values `moe` and `norms` fuse only that component, allowing its
 effect on performance and full-model probabilities to be isolated.
+
+## Optional fused router top-k
+
+Expert routing defaults to `OLMO_SGLANG_ROUTING_KERNELS=torch`, retaining the
+existing separate PyTorch tensor operations and numerical behavior. These
+operations run on the GPU for CUDA inputs and can be captured in CUDA graphs;
+they are not Python arithmetic on expert values.
+
+To opt into SGLang's fused softmax/top-k/renormalize kernel, set this in every
+serving worker's launch environment **before engine startup and graph capture**:
+
+```bash
+export OLMO_SGLANG_ROUTING_KERNELS=fused
+```
+
+To turn it off, restart the engine with the variable unset or explicitly set to
+`torch`. Changing an environment variable after capture does not replace kernels
+in an existing CUDA graph. Accepted values are `torch` and `fused` (case and
+surrounding whitespace are ignored); other values raise an error when routing
+runs. CPU inputs and normalization other than L1 or no normalization retain the
+tensor path even when `fused` is requested.
+
+This switch is independent of `OLMO_SGLANG_CORE_COMPAT` and
+`OLMO_SGLANG_ROUNDING_KERNELS`. Selecting a compatibility/rounding mode does not
+cancel an explicit fused-routing opt-in. Leave routing at `torch` when requiring
+the numerical behavior qualified in [PR #15](https://github.com/allenai/olmo-sglang/pull/15).
+
+Fusion reduces kernel launches and intermediate work, but changes FP32 reduction
+order and folds constant scale factors into one multiply. Routing weights can
+differ in their last bits, expert ordering/tie behavior can differ, and downstream
+BF16 outputs and token logprobs can change. It is not a bitwise-parity option.
+
+The standalone H100 screen for [PR #10](https://github.com/allenai/olmo-sglang/pull/10)
+measured this tradeoff on the frozen Olmo 3.5 KDA MoE workload at concurrency 64:
+
+| Measurement | Tensor routing | Fused routing |
+|---|---:|---:|
+| Fixed-length throughput change | baseline | +3.15% |
+| Mixed-length throughput change | baseline | +2.30% |
+| Mean absolute trainer/inference logprob difference (nats/token) | 0.03699278 | 0.03702442 |
+| Token probability-ratio outlier rate | 1.74415% | 1.77713% |
+
+The ratio is `exp(trainer_logprob - inference_logprob)` on the same scored tokens;
+an outlier lies outside `[0.8, 1.2]`. The increase is **0.03298 percentage points**,
+about 330 additional flagged tokens per million. This metric counts threshold
+crossings, not their severity. The 95%
+prompt-bootstrap interval for the change was approximately +0.00318 to +0.06560
+percentage points; the interval for the mean absolute error change crossed zero.
+
+These are short screening results. The final repeated control was preempted.
+They do not establish a learning-quality impact or a speedup on B300, nor an
+incremental gain when combined with PR #15. The measured outlier increase failed
+the original no-additional-divergence criterion, so fused routing remains opt-in.
+Recheck throughput and same-token trainer agreement for the intended checkpoint,
+runtime, and workload before choosing it. See the
+[issue #31 report](https://github.com/allenai/oe-planning/issues/31#issuecomment-6386644696)
+for the broader comparison and accepted default configuration.
