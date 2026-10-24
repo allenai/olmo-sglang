@@ -91,10 +91,15 @@ reference-equivalent probabilities are required; see
 SGLang's Triton fused-MoE kernel reads a per-shape tile configuration from
 `E={experts},N={intermediate},device_name={gpu}.json` under its config root and
 otherwise uses an untuned default. No upstream file exists for the 512-expert,
-1024-wide OLMo expert shape, so the overlay packages tuned files for the B300
-(`NVIDIA_B300_SXM6_AC`) and H100 (`NVIDIA_H100_80GB_HBM3`) under
-`olmo_sglang/moe_configs/configs/triton_3_7_1/` and, for OLMo checkpoints only,
+1024-wide OLMo expert shape, so the overlay packages a tuned file for the B300
+(`NVIDIA_B300_SXM6_AC`) under
+`olmo_sglang/moe_configs/configs/triton_3_7_1/` and, for OLMo checkpoints with
+512 experts, 1024 intermediate width and 512 expert input width,
 sets `SGLANG_MOE_CONFIG_DIR` to that package directory when the variable is unset.
+Other expert shapes retain upstream configuration discovery. The H100 tuning
+is not shipped: its matched mixed-length workload regressed by 0.67%, while
+the B300 tuning improved that workload by 4.17%. Both preserved the saved
+token logprobs in the qualification workload.
 An explicit `SGLANG_MOE_CONFIG_DIR` is left alone. SGLang logs
 `Using MoE kernel config from ...` when a file is found; a newer Triton falls back
 to the newest packaged version directory with a warning until the shape is retuned.

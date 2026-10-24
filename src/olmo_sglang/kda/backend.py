@@ -241,7 +241,7 @@ def _prepare_olmo_config(config: Any) -> bool:
         return False
     # Every process constructs the model config before the first MoE forward,
     # so this is early enough for SGLang's cached kernel-config lookup.
-    moe_configs.install_config_dir()
+    moe_configs.install_config_dir(config)
 
     layer_types = tuple(getattr(config, "layer_types", ()) or ())
     linear_layer_ids = [

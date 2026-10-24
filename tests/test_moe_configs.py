@@ -44,7 +44,6 @@ def test_shipped_files_cover_hero_shape_on_each_gpu():
     names = {path.name for path in files}
     assert names == {
         "E=512,N=1024,device_name=NVIDIA_B300_SXM6_AC.json",
-        "E=512,N=1024,device_name=NVIDIA_H100_80GB_HBM3.json",
     }
     for path in files:
         assert path.parent.name == "triton_3_7_1"
@@ -59,6 +58,10 @@ def _olmo_config():
     return SimpleNamespace(
         architectures=["Olmo3MoeForCausalLM"],
         layer_types=["full_attention"],
+        n_routed_experts=512,
+        moe_intermediate_size=1024,
+        hidden_size=1024,
+        latent_moe_dim=512,
     )
 
 
@@ -88,10 +91,6 @@ def test_other_architectures_do_not_touch_config_dir(monkeypatch):
     [
         (
             "NVIDIA B300 SXM6 AC",
-            {"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128},
-        ),
-        (
-            "NVIDIA H100 80GB HBM3",
             {"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128},
         ),
     ],
