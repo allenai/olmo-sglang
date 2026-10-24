@@ -167,3 +167,34 @@ for the first pass are retained in `runs/issue31-20261023` in the open-instruct
 workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
+
+### KDA first-stage projection packing (investigation)
+
+`OLMO_SGLANG_KDA_PROJECTIONS=packed` opts into one GEMM for the first-stage
+QKV, forget-gate, beta, and output-gate projections during BF16 CUDA decode
+with TP1 and unquantized weights. The default is `torch`. Prefill and unsupported
+configurations use the original projection calls. Restart the engine when
+changing the option.
+
+The packed call retains SGLang's unquantized dispatch setting; shape-dependent
+heuristics may select a different kernel or backend after packing.
+The existing named parameters become views into one persistent packed buffer;
+checkpoint loaders and in-place online copies continue updating those parameters.
+Device/dtype moves rebuild the views before graph capture. The second-stage gate
+projections and their BF16 inputs remain separate, including the output gate's
+bias. The recurrence accepts beta's padded row stride directly; a non-unit head
+stride still takes the contiguous fallback. No per-step weight concatenation is
+performed. Changing GEMM shapes may
+change rounding, so this option needs measured common-token trainer divergence.
+This first-stage change replaces four GEMM calls with one in each of the
+checkpoint's 14 KDA layers: 42 calls in principle, before checking extra copies
+and the actual trace. Second-stage gate packing and latent/shared-expert
+projection packing are separate candidates and are not included here.
+The frozen H100 C64 panel improves fixed-length throughput by **1.786%** and
+mixed-length throughput by **2.207%**. All 1,035,090 output token IDs and logprobs
+match both controls exactly; added trainer error and ratio-outlier cost are zero
+on these trajectories. The trace has 583 rather than 625 graph kernels per step,
+matching the intended 42-call reduction. These results qualify this checkpoint,
+runtime and H100 workload; B300, other shapes and composed options remain
+unmeasured. See [the investigation](kda-projection-investigation.md) for the
+protocol, per-wave results, loader/graph checks and limitations.
