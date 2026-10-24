@@ -123,5 +123,19 @@ Top-k above 16 and norm widths above 4096 (or non-vectorizable widths at least
 must be rerun when changing the runtime; this is not a promise of bitwise Core
 agreement for arbitrary cached decoding. Keep probability comparisons separate
 from performance measurements.
+
+## Router top-k kernel
+
+Independently of the compatibility mode, expert routing uses SGLang's fused
+softmax/top-k/renormalize kernel on CUDA, followed by one multiply for the
+constant `restore_weight_scale` and `original_num_experts_per_tok` factors.
+`OLMO_SGLANG_ROUTING_KERNELS=torch` selects the original separate tensor
+operations as a diagnostic control; the default is `fused`. CPU tensors and
+`normalize_expert_weights` other than L1 always use the tensor operations.
+Expert selection is identical except for exact ties; the FP32 routing weights
+can differ in the last bit because the kernel sums in a different order, which
+can flip rare BF16 expert-output elements in the same way as a changed GEMM
+tiling. Compare probabilities on the same tokens with both settings before
+relying on either for a parity claim.
 The diagnostic values `moe` and `norms` fuse only that component, allowing its
 effect on performance and full-model probabilities to be isolated.
