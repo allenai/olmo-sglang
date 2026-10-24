@@ -96,11 +96,14 @@ not assumed.
 
 1. H100 panel, one Jupiter GPU, high priority, one hour protected runtime,
    80-minute timeout, no automatic restart:
+   [Beaker](https://beaker.org/ex/01M5R5BKE1MX67JVVBKV9SMXK8).
+2. Earlier H100 attempt stopped in a harness-only transport precheck before model
+   loading or timing; the replacement retains identical runtime source hashes:
    [Beaker](https://beaker.org/ex/01M5R4ZSPDDXR4GNRJJDKRQVQD).
-2. B300 panel: not launched yet; runs after the H100 investigation.
+3. B300 panel: not launched yet; runs after the H100 investigation.
 
-Payload: `01M5R4XHKD5R0YVAAZB9X1462F`.
-H100 result: `01M5R4ZSPRE478R97JKJ6A44ET` (not finalized).
+Payload: `01M5R597W29Z0M528YKNQ0VYEB`.
+H100 result: `01M5R5BKEFMG1YZEJKV0HJ6E5Y` (not finalized).
 Common Core reference: `01M5QH3K19XS37AFA3DTAJGW7F`.
 The payload retains complete source snapshots, hashes, GPU prechecks, the frozen
 workload and replay inputs. `tools/run_decode_composition.py` runs from that
