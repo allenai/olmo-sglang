@@ -167,3 +167,16 @@ for the first pass are retained in `runs/issue31-20261023` in the open-instruct
 workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
+
+### Investigation: fused simple sampler selection
+
+`OLMO_SGLANG_SAMPLER=fused` is an experimental, default-off option for the pinned
+SGLang runtime, TP1, and the PyTorch sampling backend. It retains Torch's
+exponential random-number generation and the existing log-softmax calculation,
+then fuses probability/noise division, argmax, and validity reductions. Seeded or
+filtered sampling and unsupported tensor layouts/dtypes retain the original path.
+Set the option before engine startup; restart to change it.
+
+Status: implementation and portable tests prepared. GPU sample/RNG-state parity,
+throughput and same-token trainer-divergence measurements are pending. Forced-token
+scoring alone cannot establish sampler correctness, because it bypasses selection.
