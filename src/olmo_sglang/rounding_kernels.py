@@ -111,15 +111,28 @@ def weighted_sum(value, weights):
 
 
 @triton.jit
+def _scaled(v, SCALE, HAS_SCALE: tl.constexpr):
+    # PyTorch multiplies BF16 by a Python scalar in FP32 and rounds to BF16; the
+    # norm then reads that rounded tensor. Keep that rounding point.
+    if HAS_SCALE:
+        return (v * SCALE).to(tl.bfloat16).to(tl.float32)
+    return v
+
+
+@triton.jit
 def _rms_norm(
     X,
     W,
     Y,
+    R,
+    SCALE,
     WIDTH: tl.constexpr,
     EPS: tl.constexpr,
     BLOCK: tl.constexpr,
     THREADS: tl.constexpr,
     VECTOR: tl.constexpr,
+    HAS_RESIDUAL: tl.constexpr,
+    HAS_SCALE: tl.constexpr,
 ):
     row = tl.program_id(0)
     lane = tl.arange(0, THREADS)
@@ -135,13 +148,29 @@ def _rms_norm(
         else:
             col = lane + base * THREADS * 4
             step = THREADS
-        v0 = tl.load(X + row * WIDTH + col, col < WIDTH, 0).to(tl.float32)
-        v1 = tl.load(X + row * WIDTH + col + step, col + step < WIDTH, 0).to(tl.float32)
-        v2 = tl.load(X + row * WIDTH + col + 2 * step, col + 2 * step < WIDTH, 0).to(
-            tl.float32
+        v0 = _scaled(
+            tl.load(X + row * WIDTH + col, col < WIDTH, 0).to(tl.float32),
+            SCALE,
+            HAS_SCALE,
         )
-        v3 = tl.load(X + row * WIDTH + col + 3 * step, col + 3 * step < WIDTH, 0).to(
-            tl.float32
+        v1 = _scaled(
+            tl.load(X + row * WIDTH + col + step, col + step < WIDTH, 0).to(tl.float32),
+            SCALE,
+            HAS_SCALE,
+        )
+        v2 = _scaled(
+            tl.load(X + row * WIDTH + col + 2 * step, col + 2 * step < WIDTH, 0).to(
+                tl.float32
+            ),
+            SCALE,
+            HAS_SCALE,
+        )
+        v3 = _scaled(
+            tl.load(X + row * WIDTH + col + 3 * step, col + 3 * step < WIDTH, 0).to(
+                tl.float32
+            ),
+            SCALE,
+            HAS_SCALE,
         )
         a0 += v0 * v0
         a1 += v1 * v1
@@ -159,19 +188,40 @@ def _rms_norm(
         total = tl.sum(total.reshape((2, 32)), axis=0)
     variance = tl.sum(total, axis=0) * (1.0 / WIDTH)
     col = tl.arange(0, BLOCK)
-    value = tl.load(X + row * WIDTH + col, col < WIDTH, 0).to(tl.float32)
+    value = _scaled(
+        tl.load(X + row * WIDTH + col, col < WIDTH, 0).to(tl.float32), SCALE, HAS_SCALE
+    )
     weight = tl.load(W + col, col < WIDTH, 0).to(tl.float32)
     normalized = value * libdevice.rsqrt(variance + EPS)
-    tl.store(Y + row * WIDTH + col, (normalized * weight).to(tl.bfloat16), col < WIDTH)
+    output = (normalized * weight).to(tl.bfloat16)
+    if HAS_RESIDUAL:
+        # Core adds the BF16 norm output to the BF16 residual: FP32 add, one rounding.
+        residual = tl.load(R + row * WIDTH + col, col < WIDTH, 0).to(tl.float32)
+        output = (output.to(tl.float32) + residual).to(tl.bfloat16)
+    tl.store(Y + row * WIDTH + col, output, col < WIDTH)
 
 
-def rms_norm(value, weight, eps):
+def rms_norm(value, weight, eps, residual=None, scale=None):
+    """RMS norm with Core's rounding; optionally ``scale`` the input and add ``residual``.
+
+    ``scale`` reproduces ``value * scale`` as a separate BF16 multiply before the
+    norm; ``residual`` reproduces ``residual + norm(value)`` after it.
+    """
     value = value.contiguous()
     width = value.shape[-1]
+    if residual is not None and (
+        residual.shape != value.shape or residual.dtype != value.dtype
+    ):
+        raise ValueError("rms_norm residual must match the input shape and dtype")
     if width > 4096 or (width >= 128 and width % 4):
+        if scale is not None:
+            value = value * scale
         fp32 = value.float()
         normalized = fp32 * torch.rsqrt(fp32.square().mean(-1, keepdim=True) + eps)
-        return (normalized * weight.float()).to(value.dtype)
+        output = (normalized * weight.float()).to(value.dtype)
+        return output if residual is None else residual + output
+    if residual is not None:
+        residual = residual.contiguous()
     output = torch.empty_like(value)
     rows = value.numel() // width
     if rows:
@@ -184,11 +234,15 @@ def rms_norm(value, weight, eps):
             value,
             weight,
             output,
+            value if residual is None else residual,
+            1.0 if scale is None else float(scale),
             width,
             eps,
             triton.next_power_of_2(width),
             threads,
             vector,
+            residual is not None,
+            scale is not None,
             enable_fp_fusion=False,
         )
     return output
