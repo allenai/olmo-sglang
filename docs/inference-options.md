@@ -168,7 +168,7 @@ workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
 
-### Grouped second-stage KDA gate projections (unmeasured prototype)
+### Grouped second-stage KDA gate projections (investigation)
 
 `OLMO_SGLANG_KDA_GATE_PROJECTIONS=grouped` selects a single Triton launch
 containing the two second-stage gate GEMMs during TP1, unquantized BF16 CUDA
@@ -182,7 +182,11 @@ two contiguous BF16 results. It reads the original parameter tensors directly;
 there is no packed copy or new checkpoint mapping. Different tensor-core reduction
 and bias handling may change rounding, so agreement must be measured.
 
-This is independent of first-stage QKV/f1/beta/g1 packing and latent/shared-expert
-packing. It can remove one GEMM launch in each of the 14 KDA layers, before
-checking actual trace behavior. A new grouped kernel can also be slower than
-cuBLAS; no throughput gain, GPU qualification or divergence result is claimed yet.
+This is evaluated independently of first-stage QKV/f1/beta/g1 packing and
+latent/shared-expert packing. It targets one fewer GEMM launch in each of the
+14 KDA layers, pending whole-engine trace verification. GPU checks pass, and a
+cached-weight microbenchmark measures 5.64 → 2.91 microseconds per gate pair at
+batch 64. Whole-engine throughput and trainer divergence are still being
+measured; see the [investigation record](kda-grouped-gates-investigation.md).
+First-stage and second-stage packing touch the same KDA forward path, so their
+composition requires integration and another measurement.
