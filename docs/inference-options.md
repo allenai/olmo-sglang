@@ -167,3 +167,40 @@ for the first pass are retained in `runs/issue31-20261023` in the open-instruct
 workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
+
+
+### Latent/shared-expert projection packing (investigation)
+
+`OLMO_SGLANG_MOE_PROJECTIONS=packed` opts into a shared GEMM for the latent
+expert input and the shared expert's gate/up projection. The default is `torch`.
+The packed path requires BF16 CUDA decode, TP1/EP1, unquantized weights, both
+latent and shared branches. It supports the automatically selected rounding mode
+and the ordinary optimized path. Prefill, the full eager Core-reference mode,
+and other unsupported configurations retain the original calls. Restart the
+engine when changing the option.
+
+The original named Parameter objects and checkpoint loaders are retained as
+contiguous row views into one persistent buffer. Device/dtype moves rebuild those
+views before graph capture. The packed GEMM uses the existing unquantized dispatch
+setting; changing shapes can change the selected kernel and accumulation order.
+
+A direct split of the packed output would leave strided tensors: SGLang's fused
+MoE requires contiguous expert input, and the shared SwiGLU wrapper would make
+another copy. This option instead uses one kernel to copy the latent output into
+contiguous storage while producing the shared SwiGLU activation in contiguous
+storage. It preserves the separate BF16 SiLU rounding before multiplication.
+There is no per-step weight concatenation. The H100 trace confirms one fewer
+GEMM call in each of 15 sparse layers, with one activation kernel retained:
+625 → 610 graph kernels per step. The independent frozen panel measures
++0.759% fixed-length and +0.766% mixed-length throughput. All 1,035,090 output
+tokens/logprobs match both controls exactly, so added Core-error metrics are
+zero on these trajectories. This does not establish equality on other models
+or hardware. See the [investigation record](moe-projection-investigation.md)
+for controls, uncertainty, limitations and raw artifacts.
+
+Portable storage, partial-load, output-layout, and default-path tests pass.
+CUDA checks pass for strided/empty outputs, all finite BF16 activation
+inputs, actual SGLang checkpoint loading, changed inputs, and graph replay after
+weight updates. A constructor check also verifies that the option remains active
+after the default rounding-mode context exits. Full-engine source, checkpoint,
+trajectory and finalized-profile hashes were verified.
