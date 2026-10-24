@@ -111,9 +111,26 @@ wait is only 0.016 ms despite nearly identical graph work.
 The pinned source already uses pinned, nonblocking route D2H copies in overlap
 mode (`state_capturer/base.py`, `managers/utils.py`). It gathers full request
 routes at completion (`scheduler_components/batch_result_processor.py`) and
-encodes populated tensors in the detokenizer. It does **not** base64-encode a
+encodes populated tensors in the tokenizer manager when `skip_tokenizer_init`
+is enabled, or in the detokenizer on the text path. It does **not** base64-encode a
 full route history every decode step. Completion gather/serialization, clones,
 host scatter, and capture-buffer copies remain potential costs to investigate.
+
+The [matched H100 route-attribution investigation](route-capture-investigation.md)
+finds a small per-step capture cost (+0.30% fixed / +0.35% mixed throughput when
+disabled) and a larger completion/return cost (+3.53% fixed / +0.68% mixed when
+histories are omitted). All token IDs and logprobs match exactly. These controls
+remove routing-replay capabilities; they are not equivalent production options.
+The profiles point toward completion gather/IPC, while most per-step CPU copy
+work overlaps GPU execution. The corrected completion profile accounts for every
+returned route byte and measures pickle encoding/decoding separately from base64.
+The existing `SGLANG_USE_PICKLE_IPC=false` switch is now measured with routes
+preserved: +0.855% fixed throughput and +0.192% mixed (inconclusive), with exact
+token IDs, logprobs, and route-history hashes across both controls. All incremental
+trainer-divergence metrics are zero. Pickle remains the default. Local CPU tests
+favor MessagePack for completed route histories, while tiny incremental messages
+are approximately tied; see the linked investigation for workload-dependent
+timings, byte sizes, reproduction instructions and inference-only qualification.
 
 The roughly 24 GB expert-weight size and peak bandwidth give a rough reference,
 not proof that expert GEMMs are optimal. Actual expert coverage, transferred
