@@ -185,7 +185,7 @@ class CoreRMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.variance_epsilon = eps
 
-    def forward(self, value, residual=None, scale=None):
+    def forward(self, value, residual=None, scale=None, return_fp32=False):
         """Core RMS norm; ``scale`` multiplies the input first, ``residual`` is added after.
 
         Both are the separate tensor operations OLMo-core performs around the
@@ -198,7 +198,8 @@ class CoreRMSNorm(nn.Module):
             fp32.square().mean(-1, keepdim=True) + self.variance_epsilon
         )
         output = (normalized * self.weight.float()).to(value.dtype)
-        return output if residual is None else residual + output
+        output = output if residual is None else residual + output
+        return (output, output.float()) if return_fp32 else output
 
 
 class CoreDenseMLP(nn.Module):

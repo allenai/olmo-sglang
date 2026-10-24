@@ -138,6 +138,7 @@ def _rms_norm(
     W,
     Y,
     R,
+    FP32_Y,
     SCALE,
     WIDTH: tl.constexpr,
     EPS: tl.constexpr,
@@ -146,6 +147,7 @@ def _rms_norm(
     VECTOR: tl.constexpr,
     HAS_RESIDUAL: tl.constexpr,
     HAS_SCALE: tl.constexpr,
+    RETURN_FP32: tl.constexpr,
 ):
     row = tl.program_id(0)
     lane = tl.arange(0, THREADS)
@@ -212,9 +214,12 @@ def _rms_norm(
         residual = tl.load(R + row * WIDTH + col, col < WIDTH, 0).to(tl.float32)
         output = (output.to(tl.float32) + residual).to(tl.bfloat16)
     tl.store(Y + row * WIDTH + col, output, col < WIDTH)
+    if RETURN_FP32:
+        # The router widens the materialized BF16 result, not the pre-cast norm.
+        tl.store(FP32_Y + row * WIDTH + col, output.to(tl.float32), col < WIDTH)
 
 
-def rms_norm(value, weight, eps, residual=None, scale=None):
+def rms_norm(value, weight, eps, residual=None, scale=None, return_fp32=False):
     """RMS norm with Core's rounding; optionally ``scale`` the input and add ``residual``.
 
     ``scale`` reproduces ``value * scale`` as a separate BF16 multiply before the
@@ -232,10 +237,14 @@ def rms_norm(value, weight, eps, residual=None, scale=None):
         fp32 = value.float()
         normalized = fp32 * torch.rsqrt(fp32.square().mean(-1, keepdim=True) + eps)
         output = (normalized * weight.float()).to(value.dtype)
-        return output if residual is None else residual + output
+        output = output if residual is None else residual + output
+        return (output, output.float()) if return_fp32 else output
     if residual is not None:
         residual = residual.contiguous()
     output = torch.empty_like(value)
+    fp32_output = (
+        torch.empty_like(value, dtype=torch.float32) if return_fp32 else output
+    )
     rows = value.numel() // width
     if rows:
         vector = 4 if width >= 128 else 1
@@ -248,6 +257,7 @@ def rms_norm(value, weight, eps, residual=None, scale=None):
             weight,
             output,
             value if residual is None else residual,
+            fp32_output,
             1.0 if scale is None else float(scale),
             width,
             eps,
@@ -256,6 +266,7 @@ def rms_norm(value, weight, eps, residual=None, scale=None):
             vector,
             residual is not None,
             scale is not None,
+            return_fp32,
             enable_fp_fusion=False,
         )
-    return output
+    return (output, fp32_output) if return_fp32 else output

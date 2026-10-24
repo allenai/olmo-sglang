@@ -167,3 +167,72 @@ for the first pass are retained in `runs/issue31-20261023` in the open-instruct
 workspace. The follow-up trace analysis is in `runs/issue31-profile2-20261024`.
 Immutable Beaker payload: `01M5QCEZD3QJYRPP4BAP8KY8JC`;
 result dataset: `01M5QCKBM1JF3NYMQC1SCPJKPD`.
+
+### Investigation: FP32 router input from the norm — measured H100 option
+
+`OLMO_SGLANG_ROUTER_INPUT=fused` asks the sparse layer's pre-MLP norm to emit
+both its BF16 result and an exact FP32 widening of that result. The router uses
+the FP32 output; latent/shared/expert inputs stay BF16. The FP32 store occurs
+**after BF16 rounding**, not from the norm's unrounded intermediate. Default is
+`torch`; restart the engine when changing the option. Layers without a compatible
+rounding pre-MLP norm retain their existing path. The norm API's non-BF16/CPU
+fallback computes the two outputs with Torch. This does not replace routing
+softmax, top-k or normalization; routing-tail fusion is a separate option.
+
+The completed H100 C64 control/candidate/control panel measured:
+
+| Frozen workload | Bracketed control tokens/s | Candidate tokens/s | Change | Closing-control drift |
+|---|---:|---:|---:|---:|
+| Fixed length | 5,784.50 | 5,834.27 | +0.860% | -0.538% |
+| Mixed lengths | 3,621.76 | 3,644.32 | +0.623% | -0.0065% |
+
+All six paired waves improved. Fixed gains ranged from +0.430% to +1.308%;
+mixed gains ranged from +0.561% to +0.668%. Those are also the three-wave
+bootstrap endpoints. The fixed control drift is material; this short panel is
+not a cross-machine/day variability estimate. Startup, warmup and profiling
+are excluded from throughput; whole-wave timing includes prefill and drain.
+
+The separate 64-step trace confirms **625 → 610 graph kernels per step** and
+**8.175 → 8.135 ms** summed graph GPU work, about 40.6 microseconds saved. These
+profile sums include the ramp and are not unprofiled end-to-end latency.
+All 384 trajectories / **1,035,090 token IDs and logprobs** exactly match both
+controls. The completed common OLMo-core reference verifies:
+
+| Trainer comparison, same trajectories | Control | Candidate | Added cost |
+|---|---:|---:|---:|
+| Mean absolute logprob error, nats/token | 0.03694615 | 0.03694615 | 0 |
+| Signed serving minus trainer mean | +0.00201359 | +0.00201359 | 0 |
+| p95 absolute error | 0.13185763 | 0.13185763 | 0 |
+| p99 absolute error | 0.23219654 | 0.23219654 | 0 |
+| Maximum absolute error | 3.29934740 | 3.29934740 | 0 |
+| Probability ratio outside [0.8, 1.2] | 1.64720% | 1.64720% | 0 percentage points |
+
+This is unchanged divergence, not zero absolute trainer error. Core `e505356`
+used BF16 eval, natural routing, torch attention and one full request per document.
+Reference input/model/trajectory hashes were validated before reuse. B300,
+compositions with the other options, route-replay RL scoring and learning-quality
+outcomes remain unmeasured.
+
+Validation: pinned Ruff passes; portable suite 155 passed and 117 CUDA cases
+skipped locally. The GPU precheck passed 45 exact BF16/FP32-output cases across
+five widths and three row counts, with scaling/residual variants and changed
+inputs, residuals and norm weights under graph replay. Runtime source/configuration
+hashes and mode settings were verified. Tested candidate `f8f77a99`, baseline
+`70abc4ad`; later changes are result documentation only. BF16 TP1/EP1, memory
+fraction 0.7, context 12288, prefill chunk 8192, full decode graphs, radix/Mamba
+cache, route capture/return, original logprobs and PyTorch sampling. Three fixed
+and three mixed waves.
+
+Runs:
+
+1. Completed H100 panel, kernel checks and profiles, process runtime 16m17s:
+   [Beaker](https://beaker.org/ex/01M5QM4MAT3PX0F8H75A6HYD8Y).
+   Payload `01M5QKB2AQ8VMJW47FRTMWK2A4`; result `01M5QM4MB1AXWY9XVK53TC00JV`.
+2. Common trainer reference, 384 trajectories / 1,035,090 tokens, 94 seconds:
+   [Beaker](https://beaker.org/ex/01M5QH3K0YFW17Z7J7W709V53G).
+   Result `01M5QH3K19XS37AFA3DTAJGW7F`.
+
+Raw profiles, vectors, audit and trainer comparison are under
+`runs/issue31-decode-menu-20261024/02b-router-input` in the open-instruct workspace.
+This is a default-off building block for review; no production default or image
+was changed.
