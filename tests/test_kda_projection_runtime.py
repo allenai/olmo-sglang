@@ -61,9 +61,7 @@ def test_packed_kda_checkpoint_refresh_and_graph_replay(monkeypatch):
     hidden = torch.randn(64, 256, dtype=torch.bfloat16, device="cuda")
 
     def project():
-        return projections.project(
-            hidden, attention._packed_input_weight, attention._packed_input_sizes
-        )
+        return attention._project_inputs(hidden)
 
     stream = torch.cuda.Stream()
     stream.wait_stream(torch.cuda.current_stream())

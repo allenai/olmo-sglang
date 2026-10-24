@@ -176,6 +176,7 @@ with TP1 and unquantized weights. The default is `torch`. Prefill and unsupporte
 configurations use the original projection calls. Restart the engine when
 changing the option.
 
+The packed call retains SGLang's selected unquantized GEMM backend.
 The existing named parameters become views into one persistent packed buffer;
 checkpoint loaders and in-place online copies continue updating those parameters.
 Device/dtype moves rebuild the views before graph capture. The second-stage gate

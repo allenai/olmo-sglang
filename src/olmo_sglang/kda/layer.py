@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import torch
 from sglang.kernels.ops.attention.fla.fused_norm_gate import FusedRMSNormGated
 from sglang.srt.distributed.utils import divide
@@ -176,6 +178,15 @@ class Olmo3MoeKDAAttention(nn.Module):
         modules = [getattr(self, name) for name in projections.PROJECTION_NAMES]
         self._packed_input_sizes = [module.weight.shape[0] for module in modules]
         self._packed_input_weight = projections.pack_weights(modules)
+        # UnquantizedLinearMethod consumes weight and keeps the selected GEMM
+        # backend (Torch or the pinned runtime's supported alternative).
+        self._packed_input_layer = SimpleNamespace(weight=self._packed_input_weight)
+
+    def _project_inputs(self, hidden_states):
+        output = self.qkv_proj.quant_method.apply(
+            self._packed_input_layer, hidden_states
+        )
+        return output.split(self._packed_input_sizes, dim=-1)
 
     def _apply(self, fn, recurse=True):
         super()._apply(fn, recurse=recurse)
@@ -196,8 +207,8 @@ class Olmo3MoeKDAAttention(nn.Module):
             and hidden_states.is_cuda
             and hidden_states.dtype == torch.bfloat16
         ):
-            mixed_qkv, first_gate, raw_beta, first_output_gate = projections.project(
-                hidden_states, self._packed_input_weight, self._packed_input_sizes
+            mixed_qkv, first_gate, raw_beta, first_output_gate = self._project_inputs(
+                hidden_states
             )
             raw_gate = self.f_proj_2(first_gate)[0]
             output_gate = self.g_proj_2(first_output_gate)[0]
