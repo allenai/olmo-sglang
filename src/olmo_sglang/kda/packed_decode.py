@@ -102,6 +102,8 @@ def _olmo_packed_kda_decode_kernel(
 
     query = query / tl.sqrt(tl.sum(query * query) + 1e-6)
     key = key / tl.sqrt(tl.sum(key * key) + 1e-6)
+    query = query.to(mixed_qkv.dtype.element_ty).to(tl.float32)
+    key = key.to(mixed_qkv.dtype.element_ty).to(tl.float32)
     query *= scale
 
     gate_ptr = a + sequence * stride_a_token + value_head * key_dim + key_offsets
