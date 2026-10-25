@@ -81,4 +81,39 @@ image A/B/text/A isolation, multiple images, mixed text/image requests, an
 eight-page frozen olmOCR slice, response-prefix scoring and a CPU/GPU profile.
 It uses 256-token chunked prefill and keeps generations, token logprobs, exact
 inputs and timings. The OCR generations are capped; resulting task checks are
-smoke diagnostics, not benchmark accuracy. Runtime qualification is pending.
+smoke diagnostics, not benchmark accuracy.
+
+Native H100 run on source `384c971`:
+[Beaker](https://beaker.org/ex/01M5TJH45F728RA8WDSPXD8M2W),
+result dataset `01M5TJH45RJHVPN2TWXMSN2NP9`. It exited successfully in 252 s
+(including process startup and cold compilation). Engine initialization was
+50.34 s; the first image request took 85.70 s. Warm control requests took
+0.25–0.33 s, but this tiny, eager, batch-1 smoke is **not** a throughput benchmark.
+
+- Image A read `ALPHA`, B read `BETA`, and the two-image request read both in
+  order. A/B/text/A repeated A's greedy tokens exactly. Mixed text/image requests
+  completed, and the text-only request answered Paris for France's capital.
+- All eight OCR pages completed; five hit the 512-token cap, three reached EOS.
+  The official olmOCR 0.4.27 checks passed 24/52, including all eight baseline
+  nonempty/nonrepeating-output checks. Failures on capped pages do not establish
+  an accuracy regression. Category counts: multi-column 3/10, old scans 5/12,
+  tables 3/17, headers/footers 5/5, baseline 8/8.
+- Every response and its token logprobs is retained, along with prefill scoring
+  of the first 32 response tokens. Inputs are the frozen PNGs in payload dataset
+  `01M5TJ4FECF2Q4J1J30BC44NG2`; hashes and upstream dataset revision are in the
+  saved manifest. No renderer differences enter the paired comparison.
+- CPU/GPU trace: `inference/profile/1792967217.3940604-TP-0.trace.json.gz`
+  within the result dataset. It captures a fresh image with 541 prompt tokens,
+  256-token prefill chunks and two generated tokens. The encoder/connector is
+  called once; subsequent chunks reuse its features. Profiling perturbs timings.
+
+Runtime: SGLang `0.5.19.dev49+g3145136`, torch `2.13.0+cu130`, Transformers
+`5.12.1`, FLA `0.5.2`, NVIDIA H100 80GB HBM3. CUDA graphs were disabled. TP>1,
+speculation, production concurrency, long contexts and uncapped benchmark
+accuracy remain unqualified.
+
+`tools/score_vision_ocr_smoke.py` applies the official diagnostic checks.
+`tools/score_vision_core.py` scores the identical saved response prefixes with
+the original full-vocabulary Core checkpoint and the pinned olmo-eval MoE
+fallback source. Its report measures disagreement; successful completion alone
+is not a numerical acceptance gate.
