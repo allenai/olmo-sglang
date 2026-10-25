@@ -105,13 +105,17 @@ With eight CPU threads and FP32 computation on those BF16 source weights:
 | Replacing synthetic patches with zero patches | changes features |
 
 The check uses synthetic patch inputs and real weights. It tests loading and
-feature computation, not image preprocessing or semantic accuracy. It restores
-the tokenizer/config in memory; a complete restored expert checkpoint has not
-yet been produced or loaded in an SGLang GPU process. The real SGLang CUDA-only
-decoder remains to be qualified; CPU wrapper tests replace that decoder alone.
+feature computation, not image preprocessing or semantic accuracy. That fixture probe restores the tokenizer/config in memory. A separate full-artifact
+check below exercises the converter against every retained checkpoint tensor.
+The real SGLang CUDA-only decoder remains to be qualified; CPU wrapper tests
+replace that decoder alone.
 
-The 256K checkpoint's metadata was inspected, but its full model has not been
-run. [#63](https://github.com/allenai/oe-planning/issues/63) stays open pending
+The 256K export has the same 23,855 tensor names, shapes and dtypes as the
+64K export; its vision and connector configs are identical. The only nested
+text-config difference is `max_position_embeddings` (65,536 versus 262,144).
+Its config passes the same validation once the original vocabulary size is
+restored in memory. This is metadata compatibility, not a 256K weight-content
+or runtime qualification. [#63](https://github.com/allenai/oe-planning/issues/63) stays open pending
 complete-artifact/runtime validation.
 
 Reproduce the real-weight CPU check after downloading that fixture:
@@ -119,3 +123,37 @@ Reproduce the real-weight CPU check after downloading that fixture:
 ```bash
 python tools/check_vision_cpu_fixture.py /path/to/fixture --output report.json
 ```
+
+For a bounded native SGLang check on a compatible GPU runtime:
+
+```bash
+python tools/check_vision_runtime.py /path/to/full-restored-export --output runtime.json
+```
+
+This loads all components but disables image request processing and CUDA graphs,
+uses a 256-token context limit, and generates only four text tokens. It does not
+qualify image serving, full-context operation, or throughput.
+
+## Complete restored 64K artifact
+
+The [full-artifact CPU check](https://beaker.org/ex/01M5TFWR1KDEFTB7VCRCWJCT5G)
+created `/weka/oe-training-default/robertb/vision63/64k-7c54bb9` without changing
+Jason's original exports. All **23,853 non-vocabulary tensors** matched the
+source HF tensors exactly (name, shape, dtype and value); the two vocabulary
+tables were restored from Core. The output audit found 23,855 tensors and all
+six image token IDs at 100278–100283 within a 100352-row vocabulary.
+
+Restoration, full tensor comparison and source/output file hashing took **124.8 s**;
+job execution including environment setup took about 141 s. This ran on four CPU
+cores with a 16 GiB request, high/unallocated, on Jupiter after a Saturn attempt
+was preempted during image startup. It used PyTorch 2.13.0+cu130 and Transformers
+5.12.1 with GPU execution unused. The first setup attempt selected the image's
+old source through inherited `PYTHONPATH` and exited before checkpoint writes;
+the successful run explicitly selected the pinned sources.
+
+Result dataset `01M5TFWR1V0XG8SAZFT45FP33S` contains `complete-artifact.json`,
+including hashes for all output files and the two source weight files, source
+commits, image IDs and the full-vocabulary policy. The same receipt resides in
+the output checkpoint. Image processing configuration remains in the bundled
+Core config; executable preprocessing and request integration are still #65.
+This artifact audit does not establish image-conditioned correctness.
