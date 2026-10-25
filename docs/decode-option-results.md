@@ -91,10 +91,13 @@ the warmed free-generation control above; compare within this pair.
 | Signed mean, serving minus Core (nats/token) | +0.00178905 | +0.00009522 |
 | Ratio outside [0.8, 1.2] | 1.66400989% | 1.70197761% |
 
-Bias magnitude falls by about 94.7%. The mean-absolute-error change is
+Signed mismatch magnitude on the frozen H100-main samples falls by about 94.7%.
+This is not proof of removing a universal numerical bias; see the
+[sampling-distribution caveat and B300 results](decode-composition.md#sampling-distribution-and-signed-error).
+The mean-absolute-error change is
 +0.00001502 nats, with prompt-cluster 95% interval [-0.00008758, +0.00012003].
 The outlier change is +0.03796771 percentage points, with interval
-[+0.00722772, +0.06889621] pp. Record that measured increase alongside the bias
+[+0.00722772, +0.06889621] pp. Record that measured increase alongside the signed-mismatch
 reduction; do not label every last-bit change as zero cost. Fixed throughput
 changes +0.419% and mixed -0.211%, without a consistent speed benefit.
 PR #21 remains an unmerged source candidate, not an adopted default.

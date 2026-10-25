@@ -1,0 +1,27 @@
+{
+  "tokens": 1035090,
+  "actual_generator_minus_core_mean": 0.002013588094103423,
+  "replay_metrics": {
+    "h100-main": {
+      "signed_minus_core": 0.0017890456025116677,
+      "generating_logprob_minus_replay_mean": 0.00022454249159175541,
+      "changed_from_generation": 155057
+    },
+    "h100-aligned": {
+      "signed_minus_core": 9.521858892619263e-05,
+      "generating_logprob_minus_replay_mean": 0.001918369505177231,
+      "changed_from_generation": 1034175
+    },
+    "b300-main": {
+      "signed_minus_core": 8.386895704705794e-05,
+      "generating_logprob_minus_replay_mean": 0.001929719137056365,
+      "changed_from_generation": 1034422
+    },
+    "b300-aligned": {
+      "signed_minus_core": 0.00010460023343514747,
+      "generating_logprob_minus_replay_mean": 0.0019089878606682758,
+      "changed_from_generation": 1034458
+    }
+  },
+  "interpretation": "Reference tokens were sampled from warmed H100 main. Its actual generating distribution p has E_p[log p-log q]=KL(p||q); other replay distributions r instead have E_p[log r-log q]=KL(p||q)-KL(p||r). Replay-main cache history differs on some tokens, so even its recorded signed mean is not exactly the generating KL estimate. Lower signed mismatch on this fixed sample is not proof of removing a hardware-independent numerical bias."
+}

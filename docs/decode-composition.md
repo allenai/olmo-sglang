@@ -1,7 +1,8 @@
 # Second-pass decode composition
 
-H100 qualification is complete, including the finalized-dataset audit and all
-same-token numerical comparisons. B300 qualification is in progress. This
+Both H100 and B300 measurement panels are complete, including finalized-dataset
+audits and all same-token numerical comparisons. A localized B300 arithmetic
+difference is under attribution before final qualification. This
 branch integrates the eight individually measured performance
 options and the q/k rounding correction; it does not yet establish a production
 recommendation or learning-quality results. The
@@ -102,6 +103,110 @@ and 1.627 with fused routing; these are descriptive maxima. No aggregate MAE
 change interval excludes zero. Similar error magnitudes across implementations
 do not prove an irreducible numerical floor or exclude a shared hidden cause.
 
+## B300 timing and agreement investigation
+
+All nineteen B300 phases completed successfully, and the finalized dataset
+passed the source, configuration, workload, route, profile and Core-reference
+audit. See the [machine-readable results](data/decode-composition-b300.json).
+
+| Configuration | Fixed tokens/s | Change | Mixed tokens/s | Change |
+|---|---:|---:|---:|---:|
+| Current main, bracketed control | 8,696 | — | 5,572 | — |
+| Performance composition, original q/k | 9,361 | +7.64% | 6,079 | +9.09% |
+| Composition with q/k alignment | 9,257 | +6.45% | 6,047 | +8.52% |
+| Above plus optional fused routing | 9,331 | +7.30% | 6,202 | +11.30% |
+
+Opening-to-closing control drift was −0.034% fixed and −0.455% mixed. The
+aligned configuration's three-wave gain intervals are [5.80%, 7.44%] fixed and
+[7.82%, 9.19%] mixed. Optional fused routing adds 0.79% fixed / 2.56% mixed
+over aligned, with intervals [0.04%, 2.13%] / [2.18%, 3.24%]. These direct
+treatment comparisons have the same limited three-wave scope as H100.
+
+**The original-q/k performance composition does not pass the B300 exact-output
+gate.** Opening and closing main agree exactly on all tokens, logprobs and
+route hashes, but four of the candidate's 384 trajectories differ. All four
+are in mixed repeat 1, beginning at output index 9,696–9,697 when the active
+batch drains from five requests to four. Logprobs change before sampled tokens
+change. The other 380 trajectories have identical tokens and logprobs.
+The effect is localized but must not be hidden by the aggregate performance
+gain or generalized from H100's exact agreement.
+
+The completed original-q/k same-token replay changes 2,169 of 1,035,090
+logprobs, again in those four requests. MAE increases by 0.00000704 nats
+(95% interval [−0.00000042, +0.00001692]); ratio outliers increase by a net
+10 tokens, or 0.000966 percentage points (interval [−0.000650, +0.003374]).
+Both intervals include zero. The largest candidate-versus-main logprob change
+is 0.608 nats. These results do not establish a real-RL quality effect.
+
+A sequential follow-up is
+running to repeat main/full-composition controls and disable each of the three
+projection optimizations separately, preserving the full six-wave cache history.
+Small-batch projection arithmetic is a hypothesis, not an established cause;
+no runtime fallback or arithmetic patch has been made on that assumption.
+
+The completed Q/k-aligned replay has MAE 0.037123 nats, signed mismatch
++0.000105 nats, and 1.7437% ratio outliers. Relative to the original-q/k
+performance composition, Q/k alignment adds 0.000162 nats MAE
+(95% interval [+0.000068, +0.000263]) and 0.04782 percentage points of outliers
+(interval [+0.01865, +0.07730]). Both increases are resolved on this panel.
+The signed change, +0.000025 nats, has an interval spanning zero. In the direct
+timing comparison, aligned throughput is 1.11% lower fixed / 0.53% lower mixed;
+these arms are not independently bracketed, and their sampled trajectories
+differ. Do not describe the Q/k addition as a universally cost-free accuracy
+improvement.
+
+| Configuration | MAE, nats | Signed mean, nats | Ratio outliers |
+|---|---:|---:|---:|
+| Main | 0.036953 | +0.000084 | 1.6949% |
+| Performance composition, original q/k | 0.036961 | +0.000080 | 1.6959% |
+| Composition with q/k alignment | 0.037123 | +0.000105 | 1.7437% |
+| Above plus optional fused routing | 0.036996 | +0.000033 | 1.7039% |
+
+Fused routing **reduces** MAE by 0.000126 nats relative to aligned
+(95% interval [−0.000214, −0.000038]) and outliers by 0.03980 percentage points
+(interval [−0.07073, −0.00711]) on B300. Its total change versus main is
++0.000043 nats MAE (interval [−0.000035, +0.000124]) and +0.00898 percentage
+points outliers (interval [−0.02053, +0.04065]); those total-change intervals
+include zero. Maximum trainer error is 2.042 nats for main/performance, 1.677
+for aligned and 2.042 with fused routing. These descriptive maxima are not
+interval estimates. Fused routing is not a universally worse-agreement option:
+its incremental H100 and B300 results differ, which is why it remains an
+explicit measured choice rather than a blanket accuracy label.
+
+B300 graph-kernel counts are 625 → 479 → 479 → 464; corresponding summed
+kernel times are 4.980 / 4.597 / 4.626 / 4.513 ms. These are profile attribution
+results, separate from the unprofiled whole-wave throughput measurements.
+
+## Sampling distribution and signed error
+
+The common reference was generated by warmed H100 main at temperature 1, with
+no top-p/top-k truncation. Denote its conditional distribution by `p`, the
+trainer by `q`, and another replay engine by `r`. At a fixed prefix, the ideal
+sampling expectations are:
+
+```text
+E_p[log p - log q] = KL(p || q)
+E_p[log r - log q] = KL(p || q) - KL(p || r)
+```
+
+Thus a positive generating-model mean is not automatically a numerical defect,
+and another model's near-zero mean need not indicate better agreement with the
+trainer. On these frozen tokens the actual generating logprobs have signed
+mean +0.002014 nats against Core. Fresh H100-main replay gives +0.001789;
+its different cache history changes 155,057 logprobs, so that replay mean is
+not exactly the generating-model KL estimate. H100 aligned, B300 main and B300
+aligned all give means near +0.0001. These observations establish a sampling
+confound; they do not identify how much of any change comes from that confound
+versus a systematic arithmetic effect.
+
+The H100 94.7% decrease is therefore a measured reduction of signed mismatch
+on H100-main samples, **not proof that the change removes a universal decode
+bias**. Q/k alignment does match the trainer's explicit rounding boundary;
+that source-level fact is separate from the empirical accuracy tradeoff.
+Keep MAE, tail metrics and outliers, with paired intervals and the reference
+sampling distribution, in each option's measurement row. Real-RL effects and
+per-candidate on-policy divergence remain outside this phase.
+
 ## Select the candidate
 
 The performance configuration sets these variables before engine startup and
@@ -192,16 +297,28 @@ not assumed.
 3. B300 panel, one Holmes GPU, high priority, 45 minutes protected runtime,
    65-minute timeout, no automatic restart:
    [Beaker](https://beaker.org/ex/01M5R8G8DD0JVH434ZQTHDGNW7).
+4. B300 small-batch projection attribution, one Holmes GPU, high priority,
+   25 minutes protected runtime, 35-minute timeout, no automatic restart:
+   [Beaker](https://beaker.org/ex/01M5RB7QWF6TT78CDWJPX43EMR).
 
 Payload: `01M5R597W29Z0M528YKNQ0VYEB`.
 H100 result: `01M5R5BKEFMG1YZEJKV0HJ6E5Y` (finalized and audited).
-B300 result: `01M5R8G8DNG01BC42EP1NTGRJ3` (active).
+B300 result: `01M5R8G8DNG01BC42EP1NTGRJ3` (finalized and audited).
+B300 attribution runner: `01M5RA7A0GNTC0NYAFZ9N6Y1J0`; result:
+`01M5RB7QWQG9Z6GX4HRNC1CXJ1` (active). It mounts the same immutable
+composition payload and the completed B300 result, and requires fresh controls
+to reproduce the prior vectors before continuing with ablations.
 Common Core reference: `01M5QH3K19XS37AFA3DTAJGW7F`.
 The payload retains complete source snapshots, hashes, GPU prechecks, the frozen
 workload and replay inputs. `tools/run_decode_composition.py` runs from that
 payload; its auxiliary benchmark/replay scripts are included in the dataset.
 Local preparation, analyses and the attempt ledger live under
 `open-instruct/runs/issue31-composition-20261024`.
+
+The successful B300 job queued for 8.33 seconds, initialized for 25.12 seconds,
+and executed for **46m07s**: 4m45s of prechecks, 21m12s for the five timing
+engine processes, and 20m09s for four diagnostic replays. It completed without
+preemption, completing after its 45-minute protected window.
 
 The successful H100 job queued for 8.35 seconds, initialized for 25.26 seconds,
 and executed for **52m44s**. That execution includes 1m54s of GPU prechecks,

@@ -1,11 +1,18 @@
 # Q/k rounding on the common H100 panel
 
 PR #21 rounds normalized KDA q/k to BF16 before converting back to FP32 for
-the decode recurrence. On this panel it reduces signed serving/trainer bias
+the decode recurrence. On this panel it reduces signed serving/trainer mismatch
 by about 94.7%, leaves mean absolute error approximately unchanged, and raises
 the probability-ratio outlier rate by 0.038 percentage points. There is no
 consistent throughput improvement. This is a measured numerical tradeoff,
 not an adopted default or a speed optimization.
+
+The frozen tokens were sampled from H100 main. A smaller signed mismatch on
+those tokens does not by itself prove removal of a systematic numerical bias:
+the generating model receives a sampling-dependent advantage in that metric.
+See the [composition results](decode-composition.md#sampling-distribution-and-signed-error)
+for the cross-hardware evidence and interpretation. MAE and outlier changes
+remain valid paired measurements on this fixed workload distribution.
 
 ## Source and workload
 
@@ -87,7 +94,7 @@ training evaluation.
 
 The older PR #21 study uses 1,185,618 tokens and different cache/memory/prefill
 settings. Its audited result independently shows the same direction: lower
-bias, nearly unchanged mean absolute error, and +0.04428 pp outliers. It is
+signed mismatch, nearly unchanged mean absolute error, and +0.04428 pp outliers. It is
 corroborating evidence, not part of this common-panel row. Similar pairwise
 BF16 errors are consistent with accumulation-order noise; they do not by
 themselves establish an irreducible error floor for every implementation.
