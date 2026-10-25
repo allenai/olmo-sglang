@@ -9,7 +9,7 @@ text model. No new tokenizer IDs are guessed at model load.
 
 This is checkpoint-loading groundwork for [planning #63](https://github.com/allenai/oe-planning/issues/63).
 Image request preprocessing, post-normalization feature injection, generated
-answers and serving-runtime qualification are tracked in
+answers and image-serving qualification are tracked in
 [#65](https://github.com/allenai/oe-planning/issues/65). The entry point rejects
 image batches and externally supplied embeddings until that integration exists.
 Do not use this branch as a production image server or infer task accuracy from
@@ -107,16 +107,16 @@ With eight CPU threads and FP32 computation on those BF16 source weights:
 The check uses synthetic patch inputs and real weights. It tests loading and
 feature computation, not image preprocessing or semantic accuracy. That fixture probe restores the tokenizer/config in memory. A separate full-artifact
 check below exercises the converter against every retained checkpoint tensor.
-The real SGLang CUDA-only decoder remains to be qualified; CPU wrapper tests
-replace that decoder alone.
+CPU wrapper tests replace the CUDA-only decoder alone; the native H100 check
+below separately exercises the real decoder and full model loader.
 
 The 256K export has the same 23,855 tensor names, shapes and dtypes as the
 64K export; its vision and connector configs are identical. The only nested
 text-config difference is `max_position_embeddings` (65,536 versus 262,144).
 Its config passes the same validation once the original vocabulary size is
 restored in memory. This is metadata compatibility, not a 256K weight-content
-or runtime qualification. [#63](https://github.com/allenai/oe-planning/issues/63) stays open pending
-complete-artifact/runtime validation.
+or runtime qualification. [#63](https://github.com/allenai/oe-planning/issues/63) remains open for implementation
+review; image-conditioned generation remains #65.
 
 Reproduce the real-weight CPU check after downloading that fixture:
 
@@ -157,3 +157,23 @@ commits, image IDs and the full-vocabulary policy. The same receipt resides in
 the output checkpoint. Image processing configuration remains in the bundled
 Core config; executable preprocessing and request integration are still #65.
 This artifact audit does not establish image-conditioned correctness.
+
+## Native H100 loading check
+
+The [four-token native smoke](https://beaker.org/ex/01M5TG5Z080YF0PDJCTFS0WMVM)
+passed on one H100 80 GB, loading the complete restored 64K artifact through
+SGLang's native model discovery, strict full-component loader and KDA cache
+setup. It generated four text tokens with finite logprobs. Result dataset
+`01M5TG5Z0VTJSM1PTNGQQFX937` retains the generation, logprobs, hardware and runtime
+versions. Source: `080bcca`; SGLang `0.5.19.dev49+g3145136`, FLA 0.5.2,
+PyTorch 2.13.0+cu130, Transformers 5.12.1.
+
+Engine initialization took **46.50 s**. The first cold request took **83.20 s**;
+no warm-throughput measurement was attempted, and this must not be reported as
+steady-state inference performance. Job execution was **154 s**, with about
+three minutes of preceding node/image startup. The job was high/unallocated on
+Jupiter with a 12-minute timeout and exited successfully.
+
+This covers TP=1, a 256-token runtime context cap, graphs disabled, image request
+processing disabled, and four generated text tokens. It does not qualify image
+answers, long-context operation, tensor parallelism or production serving.
