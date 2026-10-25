@@ -1,0 +1,295 @@
+{
+  "artifacts": {
+    "experiment": "01M5RB7QWF6TT78CDWJPX43EMR",
+    "job": "01M5RB7QZZRXREKYT9JVBV6TZR",
+    "result_dataset": "01M5RB7QWQG9Z6GX4HRNC1CXJ1",
+    "result_committed": "2026-10-25T01:59:07.528094Z",
+    "runner_dataset": "01M5RA7A0GNTC0NYAFZ9N6Y1J0",
+    "composition_payload": "01M5R597W29Z0M528YKNQ0VYEB",
+    "previous_result": "01M5R8G8DNG01BC42EP1NTGRJ3",
+    "analysis_tool_sha256": "b3465627f3b537d712ad79ce31743c4956a2395b6cbb49b6f7d60f37fe6460d9"
+  },
+  "hardware": "NVIDIA B300 SXM6 AC, GPU-7f3e5f7c-fe63-8f61-5a39-e341c91af8da, 590.48.01, 275040 MiB",
+  "manifest_sha256": "c2bd941d4aed12220b7e973cace01a8b143504a17fd616a348f6e0e66a5d2c92",
+  "runner_sha256": "366b148a542a0b1f6e528acbd7015609a64669da55ffd7aab87eed279217395f",
+  "arms": {
+    "fresh-main": {
+      "source": "baseline",
+      "options": {
+        "OLMO_SGLANG_SHARED_ADD_NORM": "torch",
+        "OLMO_SGLANG_ROUTING_TAIL": "torch",
+        "OLMO_SGLANG_ROUTER_INPUT": "torch",
+        "OLMO_SGLANG_SAMPLER": "torch",
+        "OLMO_SGLANG_KDA_PROJECTIONS": "torch",
+        "OLMO_SGLANG_MOE_PROJECTIONS": "torch",
+        "OLMO_SGLANG_KDA_GATE_PROJECTIONS": "torch",
+        "SGLANG_USE_PICKLE_IPC": "true",
+        "OLMO_SGLANG_ROUTING_KERNELS": "torch"
+      }
+    },
+    "full-performance": {
+      "source": "performance",
+      "options": {
+        "OLMO_SGLANG_SHARED_ADD_NORM": "fused",
+        "OLMO_SGLANG_ROUTING_TAIL": "fused",
+        "OLMO_SGLANG_ROUTER_INPUT": "fused",
+        "OLMO_SGLANG_SAMPLER": "fused",
+        "OLMO_SGLANG_KDA_PROJECTIONS": "packed",
+        "OLMO_SGLANG_MOE_PROJECTIONS": "packed",
+        "OLMO_SGLANG_KDA_GATE_PROJECTIONS": "grouped",
+        "SGLANG_USE_PICKLE_IPC": "false",
+        "OLMO_SGLANG_ROUTING_KERNELS": "torch"
+      }
+    },
+    "native-kda-gates": {
+      "source": "performance",
+      "options": {
+        "OLMO_SGLANG_SHARED_ADD_NORM": "fused",
+        "OLMO_SGLANG_ROUTING_TAIL": "fused",
+        "OLMO_SGLANG_ROUTER_INPUT": "fused",
+        "OLMO_SGLANG_SAMPLER": "fused",
+        "OLMO_SGLANG_KDA_PROJECTIONS": "packed",
+        "OLMO_SGLANG_MOE_PROJECTIONS": "packed",
+        "OLMO_SGLANG_KDA_GATE_PROJECTIONS": "torch",
+        "SGLANG_USE_PICKLE_IPC": "false",
+        "OLMO_SGLANG_ROUTING_KERNELS": "torch"
+      }
+    },
+    "native-kda-first-stage": {
+      "source": "performance",
+      "options": {
+        "OLMO_SGLANG_SHARED_ADD_NORM": "fused",
+        "OLMO_SGLANG_ROUTING_TAIL": "fused",
+        "OLMO_SGLANG_ROUTER_INPUT": "fused",
+        "OLMO_SGLANG_SAMPLER": "fused",
+        "OLMO_SGLANG_KDA_PROJECTIONS": "torch",
+        "OLMO_SGLANG_MOE_PROJECTIONS": "packed",
+        "OLMO_SGLANG_KDA_GATE_PROJECTIONS": "grouped",
+        "SGLANG_USE_PICKLE_IPC": "false",
+        "OLMO_SGLANG_ROUTING_KERNELS": "torch"
+      }
+    },
+    "native-moe-projections": {
+      "source": "performance",
+      "options": {
+        "OLMO_SGLANG_SHARED_ADD_NORM": "fused",
+        "OLMO_SGLANG_ROUTING_TAIL": "fused",
+        "OLMO_SGLANG_ROUTER_INPUT": "fused",
+        "OLMO_SGLANG_SAMPLER": "fused",
+        "OLMO_SGLANG_KDA_PROJECTIONS": "packed",
+        "OLMO_SGLANG_MOE_PROJECTIONS": "torch",
+        "OLMO_SGLANG_KDA_GATE_PROJECTIONS": "grouped",
+        "SGLANG_USE_PICKLE_IPC": "false",
+        "OLMO_SGLANG_ROUTING_KERNELS": "torch"
+      }
+    }
+  },
+  "cross_job_controls": {
+    "fresh-main": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 0,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": true,
+      "routes_exact": true
+    },
+    "full-performance": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 0,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": true,
+      "routes_exact": true
+    }
+  },
+  "versus_fresh_main": {
+    "full-performance": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 4,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": false,
+      "routes_exact": false
+    },
+    "native-kda-gates": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 4,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": false,
+      "routes_exact": false
+    },
+    "native-kda-first-stage": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 0,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": true,
+      "routes_exact": true
+    },
+    "native-moe-projections": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 4,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": false,
+      "routes_exact": false
+    }
+  },
+  "versus_full_performance": {
+    "native-kda-gates": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 0,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": true,
+      "routes_exact": true
+    },
+    "native-kda-first-stage": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 4,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": false,
+      "routes_exact": false
+    },
+    "native-moe-projections": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 0,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": true,
+      "routes_exact": true
+    }
+  },
+  "unbracketed_full_gain_over_ablation": {
+    "native-kda-gates": [
+      {
+        "panel": "fixed",
+        "throughput_change_fraction": 0.050778605309592884,
+        "paired_wave_change_fractions": [
+          0.013268995201642486,
+          0.10707419861947476,
+          0.01680572080362408
+        ],
+        "paired_wave_bootstrap_95pct": [
+          0.013268995201642486,
+          0.10707419861947476
+        ]
+      },
+      {
+        "panel": "mixed",
+        "throughput_change_fraction": 0.006909753350732517,
+        "paired_wave_change_fractions": [
+          0.0063900017764926265,
+          0.0036152731920335857,
+          0.010240364822307946
+        ],
+        "paired_wave_bootstrap_95pct": [
+          0.0036152731920335857,
+          0.010240364822307946
+        ]
+      }
+    ],
+    "native-kda-first-stage": [
+      {
+        "panel": "fixed",
+        "throughput_change_fraction": 0.036063652637734256,
+        "paired_wave_change_fractions": [
+          0.03168321451641387,
+          0.058997242602281785,
+          0.011083712289882142
+        ],
+        "paired_wave_bootstrap_95pct": [
+          0.011083712289882142,
+          0.058997242602281785
+        ]
+      },
+      {
+        "panel": "mixed",
+        "throughput_change_fraction": 0.03757918595338294,
+        "paired_wave_change_fractions": [
+          0.03655444231037541,
+          0.0403911549957241,
+          0.03611330425757542
+        ],
+        "paired_wave_bootstrap_95pct": [
+          0.03611330425757542,
+          0.0403911549957241
+        ]
+      }
+    ],
+    "native-moe-projections": [
+      {
+        "panel": "fixed",
+        "throughput_change_fraction": 0.06217773386018677,
+        "paired_wave_change_fractions": [
+          0.01896112766721436,
+          0.12732212629799422,
+          0.022671740002395024
+        ],
+        "paired_wave_bootstrap_95pct": [
+          0.01896112766721436,
+          0.12732212629799422
+        ]
+      },
+      {
+        "panel": "mixed",
+        "throughput_change_fraction": 0.022413981903739222,
+        "paired_wave_change_fractions": [
+          0.022509746369922423,
+          0.020987782571902258,
+          0.023555031139911975
+        ],
+        "paired_wave_bootstrap_95pct": [
+          0.020987782571902258,
+          0.023555031139911975
+        ]
+      }
+    ]
+  },
+  "phase_seconds": [
+    {
+      "name": "fresh-main",
+      "code": 0,
+      "seconds": 387.1987253110856
+    },
+    {
+      "name": "full-performance",
+      "code": 0,
+      "seconds": 208.19640134694055
+    },
+    {
+      "name": "native-kda-gates",
+      "code": 0,
+      "seconds": 230.41325758304447
+    },
+    {
+      "name": "native-kda-first-stage",
+      "code": 0,
+      "seconds": 234.90148024773225
+    },
+    {
+      "name": "native-moe-projections",
+      "code": 0,
+      "seconds": 221.67282153991982
+    }
+  ],
+  "report_sha256": {
+    "fresh-main": "8519eb5a9695be4259549ef3aa416ff229da8e4bbed9b2f1714dbaaa9c2964d7",
+    "full-performance": "b88c25e7d1324f4107c8e832d33554ad673efc8d3d686a71d03c9a11da765d4d",
+    "native-kda-gates": "c7bfa9ee609a71721414379611dbb57c7a2c1cecbfd6b19ae87cfee3b48deed7",
+    "native-kda-first-stage": "7ae2482026b3b0d0c32c8cb83acd3d103894f5f19361f81a087e3c78333df3e3",
+    "native-moe-projections": "81efe60c8d75ed7a9ce4140593e55cd0265030f7adebfcf36d1c8639c7678414"
+  },
+  "limitation": "Free-generation causal ablation only. No separate forced-token trainer scoring of the ablated arms, and no closing timing control. Use the full composition panels for throughput and trainer costs."
+}

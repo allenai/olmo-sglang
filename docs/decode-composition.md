@@ -1,15 +1,15 @@
 # Second-pass decode composition
 
-Both H100 and B300 measurement panels are complete, including finalized-dataset
-audits and all same-token numerical comparisons. A localized B300 arithmetic
-difference is under attribution before final qualification. This
-branch integrates the eight individually measured performance
-options and the q/k rounding correction; it does not yet establish a production
-recommendation or learning-quality results. The
+The second-pass setup is measured on H100 and B300, including finalized-dataset
+audits, same-token numerical comparisons and a cross-node B300 ablation.
+This branch integrates the eight individually measured performance options and
+the q/k rounding correction. It is ready for the next workload-evaluation phase;
+it has not been merged or deployed and does not establish learning-quality
+results. The
 [individual option measurements](decode-option-results.md) remain the evidence
 for the components.
 
-## Configurations under test
+## Measured configurations
 
 | Arm | Runtime source | Settings |
 |---|---|---|
@@ -20,8 +20,10 @@ for the components.
 
 The aligned source includes the arithmetic change from PR #21 unconditionally.
 The original-q/k source is a qualification control, not a proposed permanent
-configuration axis. The intended final configuration adopts q/k alignment after
-the composition's exact-output check and its separate numerical measurement.
+configuration axis. The proposed default keeps q/k alignment to match the
+trainer's rounding boundary, with the measured numerical costs below. That is
+an arithmetic compatibility choice, not a claim of universally improved trainer
+agreement.
 Fused routing remains an explicit opt-in throughput tradeoff.
 
 ## H100 timing result
@@ -138,11 +140,33 @@ logprobs, again in those four requests. MAE increases by 0.00000704 nats
 Both intervals include zero. The largest candidate-versus-main logprob change
 is 0.608 nats. These results do not establish a real-RL quality effect.
 
-A sequential follow-up is
-running to repeat main/full-composition controls and disable each of the three
-projection optimizations separately, preserving the full six-wave cache history.
-Small-batch projection arithmetic is a hypothesis, not an established cause;
-no runtime fallback or arithmetic patch has been made on that assumption.
+A sequential follow-up on a different B300 node reproduced both main and the
+full composition exactly, including route hashes, before ablating the three
+projection options with the full six-wave cache history:
+
+| Change from full original-q/k composition | Result |
+|---|---|
+| Native grouped-gate alternative (`KDA_GATE_PROJECTIONS=torch`) | Identical to full composition; the four differences remain |
+| Native first-stage KDA projections (`KDA_PROJECTIONS=torch`) | All 1,035,090 tokens/logprobs and route hashes match main exactly |
+| Native MoE projections (`MOE_PROJECTIONS=torch`) | Identical to full composition; the four differences remain |
+
+The environment-variable names in that table have the prefix `OLMO_SGLANG_`.
+This localizes the observed difference to first-stage KDA projection packing
+(#23). Shape-dependent GEMM arithmetic is a plausible explanation; the exact
+cuBLAS algorithm or rounding operation has not been isolated. Do not label it
+a proven accumulation-order mechanism or a universal bitwise optimization.
+The [attribution audit](data/decode-composition-b300-attribution.json) retains
+the controls, source/settings hashes, route comparisons and per-arm runtimes.
+
+Packing is retained as a measured option: this follow-up estimated +3.61% fixed
+/ +3.76% mixed versus disabling it, with three-wave intervals [1.11%, 5.90%]
+/ [3.61%, 4.04%]. Those ablation timings lack a closing control and are not
+additional gains to add to the full-panel result. Its observed original-q/k
+composition cost is the small paired trainer change above. The native switch
+is available when that arithmetic change is unwanted. The exact-output
+statement concerns the original-q/k control; disabling packing does not undo
+the aligned branch's separate q/k rounding change. The ablated arms did not
+receive additional forced-token trainer scoring.
 
 The completed Q/k-aligned replay has MAE 0.037123 nats, signed mismatch
 +0.000105 nats, and 1.7437% ratio outliers. Relative to the original-q/k
@@ -207,16 +231,30 @@ Keep MAE, tail metrics and outliers, with paired intervals and the reference
 sampling distribution, in each option's measurement row. Real-RL effects and
 per-candidate on-policy divergence remain outside this phase.
 
-## Select the candidate
+## Recommended setup for the next phase
+
+Use the eight performance options with trainer-boundary q/k alignment as the
+starting setup, retaining the independent native fallbacks. Keep fused routing
+as an explicit option. On this B300 panel it offers a favorable incremental
+throughput/aggregate-agreement tradeoff; on H100 its outlier point estimate
+increases and the incremental interval includes zero. These findings support
+testing both configurations on real workloads, not a universal quality label.
+Q/k alignment remains the proposed default for arithmetic consistency despite
+the small resolved B300 MAE/outlier cost; the signed-mean result alone is not
+the adoption argument.
 
 The performance configuration sets these variables before engine startup and
 graph capture. `source configs/decode-optimized.env` selects the complete
-candidate below; its qualification status is the status of this document.
+measured setup below.
+The file clears explicit Core-compatibility, rounding-kernel and MoE-directory
+overrides to reproduce the measured automatic selection, including B300's
+packaged expert tiles.
 After sourcing, set `OLMO_SGLANG_ROUTING_KERNELS=fused` only to select the
 additional fused-routing tradeoff. BF16 q/k alignment is built into this
 revision and has no separate preset switch.
 
 ```bash
+unset OLMO_SGLANG_CORE_COMPAT OLMO_SGLANG_ROUNDING_KERNELS SGLANG_MOE_CONFIG_DIR
 export OLMO_SGLANG_SHARED_ADD_NORM=fused
 export OLMO_SGLANG_ROUTING_TAIL=fused
 export OLMO_SGLANG_ROUTER_INPUT=fused
@@ -230,7 +268,7 @@ export OLMO_SGLANG_ROUTING_KERNELS=torch
 
 Restart to change captured behavior. The individual optimization switches still
 default to their existing tensor paths in this investigation branch; the block
-above selects the complete candidate. Their documented guards and fallbacks
+above selects the complete setup. Their documented guards and fallbacks
 remain active. The fused-router switch supersedes the routing-tail path; their
 individual savings cannot be added.
 
@@ -305,7 +343,7 @@ Payload: `01M5R597W29Z0M528YKNQ0VYEB`.
 H100 result: `01M5R5BKEFMG1YZEJKV0HJ6E5Y` (finalized and audited).
 B300 result: `01M5R8G8DNG01BC42EP1NTGRJ3` (finalized and audited).
 B300 attribution runner: `01M5RA7A0GNTC0NYAFZ9N6Y1J0`; result:
-`01M5RB7QWQG9Z6GX4HRNC1CXJ1` (active). It mounts the same immutable
+`01M5RB7QWQG9Z6GX4HRNC1CXJ1` (finalized and audited). It mounts the same immutable
 composition payload and the completed B300 result, and requires fresh controls
 to reproduce the prior vectors before continuing with ablations.
 Common Core reference: `01M5QH3K19XS37AFA3DTAJGW7F`.
@@ -319,6 +357,11 @@ The successful B300 job queued for 8.33 seconds, initialized for 25.12 seconds,
 and executed for **46m07s**: 4m45s of prechecks, 21m12s for the five timing
 engine processes, and 20m09s for four diagnostic replays. It completed without
 preemption, completing after its 45-minute protected window.
+
+The B300 attribution queued for 11.76 seconds, initialized for 43.19 seconds,
+and executed for **21m32s**, completing within its 25-minute protected window.
+All five arms passed their process checks, and independent analysis verified
+the complete vectors, routes, ablation matrix and cross-job repeat controls.
 
 The successful H100 job queued for 8.35 seconds, initialized for 25.26 seconds,
 and executed for **52m44s**. That execution includes 1m54s of GPU prechecks,
@@ -344,6 +387,24 @@ python -m tools.decode_composition.analyze \
   --output artifacts/composition/h100-analysis
 ```
 
+For B300, fetch result `01M5R8G8DNG01BC42EP1NTGRJ3` into
+`artifacts/composition/b300` and run the same analyzer with that root and a
+separate output directory. Keep the same payload and Core reference.
+
+The projection attribution has its own audit, which verifies the ablation
+matrix and exact cross-job control vectors and route hashes:
+
+```bash
+beaker dataset fetch 01M5RA7A0GNTC0NYAFZ9N6Y1J0 --output artifacts/composition/attribution-runner
+beaker dataset fetch 01M5RB7QWQG9Z6GX4HRNC1CXJ1 --output artifacts/composition/attribution
+python -m tools.decode_composition.attribute \
+  --root artifacts/composition/attribution \
+  --payload artifacts/composition/payload \
+  --previous artifacts/composition/b300 \
+  --runner artifacts/composition/attribution-runner/run_attribution.py \
+  --output artifacts/composition/attribution-audit.json
+```
+
 The analyzer rejects incomplete runs, changed source/configuration hashes,
 changed workloads, codec dispatch mismatches and mismatched scoring trajectories.
 It emits a compact audit and full per-prompt numerical comparisons, including
@@ -361,7 +422,9 @@ Use the unprofiled timed waves for throughput; profiled durations are attributio
 evidence, and a gap alone does not establish a CPU bottleneck.
 
 Local validation: Ruff/format/diff checks passed; 174 portable tests passed,
-173 CUDA/runtime-dependent cases skipped. All ten H100 GPU prechecks passed,
-including the combined norm and KDA projection graph tests. The complete H100
-audit passed, including both free-generation controls, forced vectors, all
-four traces and Core provenance. B300 qualification remains pending.
+173 CUDA/runtime-dependent cases skipped. All ten GPU prechecks passed on
+each GPU, including the combined norm and KDA projection graph tests. Both
+complete panel audits passed, including controls, forced vectors, four traces
+per GPU and Core provenance. The five-arm B300 attribution audit also passed.
+The full B300 performance composition is still non-bitwise, with its localized
+effect and paired trainer cost explicitly recorded above.

@@ -9,7 +9,8 @@ not an adopted default or a speed optimization.
 
 The frozen tokens were sampled from H100 main. A smaller signed mismatch on
 those tokens does not by itself prove removal of a systematic numerical bias:
-the generating model receives a sampling-dependent advantage in that metric.
+scoring a model's own samples tends to produce a positive log-ratio relative
+to another model.
 See the [composition results](decode-composition.md#sampling-distribution-and-signed-error)
 for the cross-hardware evidence and interpretation. MAE and outlier changes
 remain valid paired measurements on this fixed workload distribution.

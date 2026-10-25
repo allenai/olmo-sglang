@@ -2,8 +2,11 @@
 
 This is a menu of inference building blocks for Olmo 3.5 KDA MoE. Measure
 throughput and trainer agreement together; numerical divergence is a cost to
-document and evaluate case by case. The individual investigations are complete. The [second-pass composition](decode-composition.md)
-is now being qualified on H100 and B300. Real-workload RL trials and
+document and evaluate case by case. The individual investigations are complete;
+the [second-pass composition](decode-composition.md) is measured on H100 and B300,
+including a localized B300 packing tradeoff and paired intervals. Select the
+second-pass setup explicitly with `source configs/decode-optimized.env`;
+the historical first-pass defaults below are a separate baseline. Real-workload RL trials and
 learning-quality evaluation remain a later phase.
 
 The [individual measurement table](decode-option-results.md) preserves the
@@ -40,8 +43,10 @@ tokens per million. The 95% prompt-bootstrap interval for the outlier increase
 was positive (+0.00318 to +0.06560 percentage points); the interval for the mean
 absolute error change crossed zero. The final repeated control was preempted.
 This is a short screening measurement, not evidence about learning quality.
-Its incremental gain and divergence on top of #15, and its B300 performance,
-remain unmeasured. See [the option's full documentation](core-compat.md#optional-fused-router-top-k).
+That screen did not measure its incremental gain on the complete composition
+or its B300 performance. Both are now covered by the
+[second-pass results](decode-composition.md), including paired trainer intervals.
+See [the option's full documentation](core-compat.md#optional-fused-router-top-k).
 
 ## Fresh profile of the default composition
 
