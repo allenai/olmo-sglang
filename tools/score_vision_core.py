@@ -56,6 +56,9 @@ def main():
             json.loads((root / "olmo_core_config.json").read_text())["model"]
         )
     )
+    # This probe feeds one unpadded document at a time. Core's plain Torch
+    # backend rejects packed-document metadata; no boundary is needed here.
+    cfg.document_mode = False
     started = time.perf_counter()
     model = cfg.build(init_device="meta")
     state = load_file(root / "model.safetensors")
@@ -78,6 +81,7 @@ def main():
         "records": [],
         "normalizer": "full_core_vocabulary",
         "attention_backend": "torch",
+        "document_mode": "single_unpadded_causal_sequence",
         "reference_moe_fallback": args.reference_moe_fallback,
     }
     for record in inference["records"]:
