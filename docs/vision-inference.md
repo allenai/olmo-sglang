@@ -117,3 +117,37 @@ accuracy remain unqualified.
 the original full-vocabulary Core checkpoint and the pinned olmo-eval MoE
 fallback source. Its report measures disagreement; successful completion alone
 is not a numerical acceptance gate.
+
+
+## Paired Core arithmetic check
+
+[Core scoring run](https://beaker.org/ex/01M5TK5Q2VHS1H2XT7AFDS4ANP)
+completed in 84 s on one H100; result dataset `01M5TK5Q32542JMFMQFYFX3CZX`.
+The first page included 64.3 s of cold compilation; subsequent forward/scoring
+calls took 63–71 ms. These are teacher-forced scoring calls, not generation
+throughput. Core peak allocated tensor memory was 26.36 GB.
+
+The original Core checkpoint scores the **same first 32 response tokens on each
+of the eight pages** (256 total), with the same pixels, image preprocessing and
+full trained vocabulary. Core revision is `8f8ae5df42de590268b87b3701679f8c21aecfcf`;
+MoE fallback helpers come unchanged from olmo-eval
+`2f383bc7d26aa413a99ad2a97b7b8c7e099ddc0c`. Attention uses Torch SDPA.
+This probe feeds one unpadded causal document per call: `document_mode=False`
+avoids Core Torch attention's unsupported packed-document metadata. It does not
+add bidirectional image attention. No generation/KV-cache patches are installed
+in the reference scoring model.
+
+| Serving score vs Core | Mean absolute error (nats) | Signed mean (serving − Core) | Maximum absolute error | Trainer/serving ratio outside [0.8, 1.2] |
+|---|---:|---:|---:|---:|
+| Decode | 0.005734 | +0.000359 | 0.204707 | 0 / 256 |
+| Prefill | 0.005466 | +0.000601 | 0.228574 | 2 / 256 |
+
+Decode versus SGLang prefill on those tokens had MAE 0.005563 nats. These are
+small, descriptive checks on mostly confident OCR prefixes; no statistical
+non-regression claim, universal BF16 error floor, or full accuracy claim follows
+from them. They complement the CPU embedding-order parity and the native image
+swap/cache controls. Broader numerical and uncapped evaluation qualification
+belongs to the next validation pass.
+
+Combined CPU checks, official OCR diagnostics, per-token scores and provenance
+are preserved in evidence dataset `01M5TKC07G4Z1G2X0D4TQW92MF`.
