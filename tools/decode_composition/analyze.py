@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .analyze_trace import summarize as summarize_trace
 from .compare_logprobs import compare
 from .compare_panels import compare_panels
 
@@ -169,6 +170,38 @@ def incremental_throughput(before, after):
     }
 
 
+def profiles(root, output):
+    result = {}
+    for name in ["baseline-before", "performance", "aligned", "fused-routing"]:
+        paths = list((root / name / "profile").glob("*DECODE.trace.json.gz"))
+        require(len(paths) == 1, "Need one decode trace per profiled arm: " + name)
+        trace = paths[0]
+        summary = summarize_trace(trace)
+        require(
+            summary["steps"] == {"step[DECODE bs=64]": 64},
+            "Profile must contain 64 C64 decode steps",
+        )
+        summary["trace"] = str(trace.relative_to(root))
+        summary["trace_sha256"] = sha(trace)
+        path = output / (name + "-profile.json")
+        path.write_text(json.dumps(summary, indent=2) + "\n")
+        result[name] = {
+            key: summary[key]
+            for key in [
+                "trace",
+                "trace_sha256",
+                "step_count",
+                "graph_kernel_count_per_step",
+                "graph_kernel_ms_per_step",
+                "all_gpu_active_union_ms_per_step",
+                "all_gpu_span_ms_per_step",
+                "family_ms_per_step",
+            ]
+        }
+        result[name]["summary_sha256"] = sha(path)
+    return result
+
+
 def analyze(root, payload, core, output):
     output.mkdir(parents=True, exist_ok=True)
     manifest = read(root / "composition-manifest.json")
@@ -236,6 +269,7 @@ def analyze(root, payload, core, output):
             for name, records in route_records.items()
         },
         "phase_seconds": read(root / "status.json"),
+        "profiles": profiles(root, output),
     }
     replays = {}
     all_core = []
@@ -294,6 +328,11 @@ def analyze(root, payload, core, output):
                 )
             records.extend(replay)
         replays[name] = records
+    audit["forced_vectors"] = {
+        name: equality(replays["baseline"], records)
+        for name, records in replays.items()
+        if name != "baseline"
+    }
     audit["trainer_comparisons"] = {}
     for left, right in [
         ("baseline", "performance"),

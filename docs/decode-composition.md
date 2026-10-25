@@ -130,7 +130,9 @@ python -m tools.decode_composition.analyze \
 The analyzer rejects incomplete runs, changed source/configuration hashes,
 changed workloads, codec dispatch mismatches and mismatched scoring trajectories.
 It emits a compact audit and full per-prompt numerical comparisons, including
-incremental aligned-to-fused-router intervals. The paired-wave intervals use
+incremental aligned-to-fused-router intervals, exact forced-replay comparisons,
+and summaries with SHA256 hashes for all four decode traces. Each trace must
+contain the same 64 C64 decode steps. The paired-wave intervals use
 only three observations per workload and do not measure machine/day variance.
 The numerical intervals resample prompts, keeping repeated trajectories and all
 their tokens together; a million tokens are not a million independent samples.
