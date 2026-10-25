@@ -22,6 +22,7 @@ def test_register_configures_workers_and_current_process(monkeypatch):
     monkeypatch.setitem(sys.modules, "sglang.srt.models.registry", registry_module)
     monkeypatch.setitem(sys.modules, "olmo_sglang.kda.backend", backend_module)
     monkeypatch.delenv("SGLANG_EXTERNAL_MODEL_PACKAGE", raising=False)
+    monkeypatch.delenv("SGLANG_EXTERNAL_MM_PROCESSOR_PACKAGE", raising=False)
 
     register()
 
