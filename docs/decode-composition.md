@@ -1,8 +1,8 @@
 # Second-pass decode composition
 
-H100 timing and the original-q/k composition's free-generation agreement check
-are complete. Same-token numerical scoring and B300 qualification are still in
-progress. This branch integrates the eight individually measured performance
+H100 qualification is complete, including the finalized-dataset audit and all
+same-token numerical comparisons. B300 qualification is in progress. This
+branch integrates the eight individually measured performance
 options and the q/k rounding correction; it does not yet establish a production
 recommendation or learning-quality results. The
 [individual option measurements](decode-option-results.md) remain the evidence
@@ -25,8 +25,7 @@ Fused routing remains an explicit opt-in throughput tradeoff.
 
 ## H100 timing result
 
-These are the completed timing arms from the active H100 result dataset below;
-the final audit will recheck the finalized dataset after numerical scoring.
+These are the audited timing arms from the finalized H100 result dataset below.
 Throughput uses the mean opening/closing control time for each paired wave.
 
 | Configuration | Fixed tokens/s | Change | Mixed tokens/s | Change |
@@ -51,8 +50,8 @@ neither interval excludes zero.
 The original-q/k performance composition matches both main controls exactly
 across all **384 requests / 1,035,090 output tokens**, including logprobs and
 the hashes of **1,155,807,232 bytes** of route data. Aligned and fused-router
-generation trajectories change; their numerical tradeoffs require the separate
-same-token replay results, which are still pending.
+generation trajectories change; their numerical tradeoffs come from the separate
+same-token replay below.
 
 The H100 traces confirm **625 → 479** graph kernels for the performance
 composition and **464** with the optional fused router. The latter replaces four
@@ -62,6 +61,46 @@ and router-input fusions, explaining why its standalone gain cannot be added.
 Profiled graph-kernel sums were 8.178 ms for main, 7.804 ms for performance,
 7.827 ms with q/k alignment, and 7.665 ms with optional fused routing. These are
 profile attribution measurements; the throughput table uses unprofiled waves.
+
+## H100 trainer agreement
+
+All rows score the same 384 requests / **1,035,090 tokens / 128 prompt clusters**
+against the fixed Core reference. Signed error is serving minus Core, in nats;
+outliers are `exp(Core - serving)` outside [0.8, 1.2]. The
+[machine-readable audit](data/decode-composition-h100.json) includes source,
+settings and artifact identities, paired intervals, tail metrics and profiles.
+
+| Configuration | Mean absolute error | Signed mean | Ratio outliers |
+|---|---:|---:|---:|
+| Main / original-q/k performance composition | 0.036951 | +0.001789 | 1.6640% |
+| Composition with q/k alignment | 0.036966 | +0.000095 | 1.7020% |
+| Above plus optional fused routing | 0.036988 | +0.000118 | 1.7308% |
+
+The original-q/k composition also matches main exactly in the fresh forced
+replay: every logprob and every trainer-error metric is unchanged. Q/k alignment
+reproduces the earlier q/k-only candidate's full logprob vector exactly. Thus
+the eight performance options add no observed numerical cost in either of these
+two H100 arithmetic configurations on this panel.
+
+| Addition | MAE change, nats [95% interval] | Outlier change, percentage points [95% interval] |
+|---|---:|---:|
+| Q/k alignment | +0.000015 [−0.000088, +0.000120] | +0.03797 [+0.00723, +0.06890] |
+| Fused routing on aligned composition | +0.000021 [−0.000070, +0.000116] | +0.02879 [−0.00143, +0.06088] |
+| Aligned + fused routing versus main | +0.000036 [−0.000074, +0.000148] | +0.06676 [+0.03681, +0.09668] |
+
+Q/k alignment reduces the sampled-token signed mismatch by 94.7%, with
+negligible timing effect. Its outlier increase is small but resolved by this
+paired interval: about four extra outliers per 10,000 tokens. It remains the
+intended arithmetic default. Fused routing offers another 1.6% throughput, with
+a point estimate of about three extra outliers per 10,000; that incremental
+interval includes zero. It remains opt-in. Do not equate either observation
+with a demonstrated training-quality effect or dismiss all small outlier shifts
+as noise.
+
+The maximum absolute trainer error was 3.299 nats for main, 1.252 for aligned,
+and 1.627 with fused routing; these are descriptive maxima. No aggregate MAE
+change interval excludes zero. Similar error magnitudes across implementations
+do not prove an irreducible numerical floor or exclude a shared hidden cause.
 
 ## Select the candidate
 
@@ -150,16 +189,27 @@ not assumed.
 2. Earlier H100 attempt stopped in a harness-only transport precheck before model
    loading or timing; the replacement retains identical runtime source hashes:
    [Beaker](https://beaker.org/ex/01M5R4ZSPDDXR4GNRJJDKRQVQD).
-3. B300 panel: not launched yet; runs after the H100 investigation.
+3. B300 panel, one Holmes GPU, high priority, 45 minutes protected runtime,
+   65-minute timeout, no automatic restart:
+   [Beaker](https://beaker.org/ex/01M5R8G8DD0JVH434ZQTHDGNW7).
 
 Payload: `01M5R597W29Z0M528YKNQ0VYEB`.
-H100 result: `01M5R5BKEFMG1YZEJKV0HJ6E5Y` (not finalized).
+H100 result: `01M5R5BKEFMG1YZEJKV0HJ6E5Y` (finalized and audited).
+B300 result: `01M5R8G8DNG01BC42EP1NTGRJ3` (active).
 Common Core reference: `01M5QH3K19XS37AFA3DTAJGW7F`.
 The payload retains complete source snapshots, hashes, GPU prechecks, the frozen
 workload and replay inputs. `tools/run_decode_composition.py` runs from that
 payload; its auxiliary benchmark/replay scripts are included in the dataset.
 Local preparation, analyses and the attempt ledger live under
 `open-instruct/runs/issue31-composition-20261024`.
+
+The successful H100 job queued for 8.35 seconds, initialized for 25.26 seconds,
+and executed for **52m44s**. That execution includes 1m54s of GPU prechecks,
+26m07s for five timing-engine processes (including their separate startup,
+warmup and profiles), and 24m39s for four diagnostic replay processes. Per-arm
+startup/warmup and measured wave times are retained in the audit. The earlier
+harness-only attempt executed for 47.41 seconds after 3m08s of initialization;
+it produced no throughput or divergence measurement.
 
 ### Reproduce the analysis
 
@@ -195,6 +245,6 @@ evidence, and a gap alone does not establish a CPU bottleneck.
 
 Local validation: Ruff/format/diff checks passed; 174 portable tests passed,
 173 CUDA/runtime-dependent cases skipped. All ten H100 GPU prechecks passed,
-including the combined norm and KDA projection graph tests. H100 timing and
-free-generation agreement results are above; same-token trainer tradeoffs,
-the finalized-dataset audit and B300 qualification remain pending.
+including the combined norm and KDA projection graph tests. The complete H100
+audit passed, including both free-generation controls, forced vectors, all
+four traces and Core provenance. B300 qualification remains pending.

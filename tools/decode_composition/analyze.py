@@ -393,6 +393,7 @@ def analyze(root, payload, core, output):
             key: result[key]
             for key in [
                 "requests",
+                "prompt_clusters",
                 "tokens",
                 "baseline",
                 "candidate",
