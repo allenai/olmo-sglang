@@ -12,7 +12,6 @@ _RUNTIME_TEST_MODULES = {
     "test_kda_radix_cache.py",
     "test_kda_tp.py",
     "test_speculative_kda.py",
-    "test_weight_targets.py",
 }
 
 

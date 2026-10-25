@@ -2,7 +2,7 @@
 
 import pytest
 
-from olmo_sglang.models.olmo3_moe import STACKED_PARAMS_MAPPING, WeightTargets
+from olmo_sglang.weight_loading import STACKED_PARAMS_MAPPING, WeightTargets
 
 
 def _legacy_resolve(name, params, num_experts):
