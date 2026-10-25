@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from olmo_sglang.kda.backend import OlmoPackedKDAKernel
+from olmo_sglang.kda.packed_decode import olmo_packed_kda_decode
 
 
 def _verify(
@@ -209,3 +210,89 @@ def test_fused_target_verify_cuda_graph_replays_new_inputs():
     torch.testing.assert_close(captured_output, expected)
     torch.testing.assert_close(scratch, expected_scratch)
     torch.testing.assert_close(state, expected_state)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
+@pytest.mark.parametrize("tree", [False, True])
+@pytest.mark.parametrize("allow_neg_eigval", [False, True])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("key_dim,value_dim", [(8, 12), (128, 128)])
+def test_target_verify_matches_repeated_packed_decode(
+    tree, allow_neg_eigval, dtype, key_dim, value_dim
+):
+    torch.manual_seed(41)
+    device = "cuda"
+    steps, query_heads, value_heads = 5, 2, 4
+    q = torch.randn(1, steps, query_heads, key_dim, device=device, dtype=dtype)
+    k = torch.randn_like(q)
+    v = torch.randn(1, steps, value_heads, value_dim, device=device, dtype=dtype)
+    raw_gate = torch.randn(steps, value_heads, key_dim, device=device, dtype=dtype)
+    raw_beta = torch.randn(1, steps, value_heads, device=device, dtype=dtype)
+    a_log = torch.randn(value_heads, device=device)
+    dt_bias = torch.randn(value_heads, key_dim, device=device)
+    state = torch.randn(1, value_heads, value_dim, key_dim, device=device)
+    original_state = state.clone()
+    indices = torch.zeros(1, device=device, dtype=torch.int32)
+    scratch = torch.empty(1, steps, value_heads, value_dim, key_dim, device=device)
+    parent_steps = [0, 0, 0, 1, 2] if tree else [0, 0, 1, 2, 3]
+    parents = (
+        torch.tensor([parent_steps], device=device, dtype=torch.int32) if tree else None
+    )
+    kernel = object.__new__(OlmoPackedKDAKernel)
+    kernel.allow_neg_eigval = allow_neg_eigval
+    actual = _verify(
+        kernel,
+        q=q,
+        k=k,
+        v=v,
+        raw_gate=raw_gate,
+        raw_beta=raw_beta,
+        a_log=a_log,
+        dt_bias=dt_bias,
+        state=state,
+        state_indices=indices,
+        query_start_loc=torch.tensor([0, steps], device=device, dtype=torch.int32),
+        scratch=scratch,
+        scratch_indices=indices,
+        parents=parents,
+    )
+
+    def decode(token, recurrent_state):
+        mixed = torch.cat([x[0, token].reshape(1, -1) for x in (q, k, v)], dim=-1)
+        return olmo_packed_kda_decode(
+            mixed,
+            raw_gate[token : token + 1],
+            raw_beta[:, token],
+            a_log=a_log,
+            dt_bias=dt_bias,
+            scale=key_dim**-0.5,
+            state=recurrent_state,
+            state_indices=indices,
+            num_value_heads=value_heads,
+            value_dim=value_dim,
+            allow_neg_eigval=allow_neg_eigval,
+        )
+
+    expected_states, expected_outputs = [], []
+    for step in range(steps):
+        parent = original_state if step == 0 else expected_states[parent_steps[step]]
+        current = parent.clone()
+        expected_outputs.append(decode(step, current))
+        expected_states.append(current)
+
+    # State comparison is in FP32 and tight enough to expose missing BF16 Q/K
+    # rounding; output-only BF16 tolerances can conceal the recurrence mismatch.
+    torch.testing.assert_close(state, original_state, atol=0, rtol=0)
+    torch.testing.assert_close(
+        scratch[0], torch.cat(expected_states), atol=2e-6, rtol=2e-5
+    )
+    torch.testing.assert_close(
+        actual, torch.cat(expected_outputs, dim=1), atol=2e-6, rtol=2e-5
+    )
+    # Commit a non-final accepted tree node, then continue ordinary decoding.
+    committed = scratch[:, 3].clone()
+    expected_committed = expected_states[3].clone()
+    torch.testing.assert_close(
+        decode(4, committed), decode(4, expected_committed), atol=2e-6, rtol=2e-5
+    )
+    torch.testing.assert_close(committed, expected_committed, atol=2e-6, rtol=2e-5)

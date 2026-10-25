@@ -139,6 +139,9 @@ def _olmo_kda_target_verify_kernel(
         value = tl.load(value_ptr, mask=value_mask, other=0.0).to(tl.float32)
         query /= tl.sqrt(tl.sum(query * query) + 1e-6)
         key /= tl.sqrt(tl.sum(key * key) + 1e-6)
+        # Match packed decode and trainer normalization before recurrence.
+        query = query.to(q.dtype.element_ty).to(tl.float32)
+        key = key.to(k.dtype.element_ty).to(tl.float32)
         query *= scale
 
         gate_ptr = (

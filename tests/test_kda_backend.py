@@ -303,12 +303,13 @@ def test_core_kda_chunks_keep_requests_and_cache_states_separate():
     torch.testing.assert_close(states, original, rtol=0, atol=0)
 
 
-def test_kda_target_verify_snapshots_ragged_chains_without_committing():
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_kda_target_verify_snapshots_ragged_chains_without_committing(dtype):
     torch.manual_seed(13)
     batch_size, token_count = 2, 5
     query_heads, value_heads = 1, 2
     key_dim, value_dim = 3, 4
-    q = torch.randn(1, token_count, query_heads, key_dim)
+    q = torch.randn(1, token_count, query_heads, key_dim, dtype=dtype)
     k = torch.randn_like(q)
     v = torch.randn(1, token_count, value_heads, value_dim)
     raw_gate = torch.randn(token_count, value_heads, key_dim)
@@ -346,10 +347,11 @@ def test_kda_target_verify_snapshots_ragged_chains_without_committing():
     expanded_q *= torch.rsqrt(
         (expanded_q * expanded_q).sum(dim=-1, keepdim=True) + 1e-6
     )
-    expanded_q *= key_dim**-0.5
     expanded_k *= torch.rsqrt(
         (expanded_k * expanded_k).sum(dim=-1, keepdim=True) + 1e-6
     )
+    expanded_q = expanded_q.to(dtype).float() * key_dim**-0.5
+    expanded_k = expanded_k.to(dtype).float()
     expected = torch.empty_like(v)
     expected_snapshots = {}
     starts = query_start_loc.tolist()
@@ -379,11 +381,12 @@ def test_kda_target_verify_snapshots_ragged_chains_without_committing():
     assert batch_size == len(starts) - 1
 
 
-def test_kda_target_verify_follows_tree_parent_states_without_committing():
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_kda_target_verify_follows_tree_parent_states_without_committing(dtype):
     torch.manual_seed(17)
     token_count = 4
     key_dim, value_dim = 2, 3
-    q = torch.randn(1, token_count, 1, key_dim)
+    q = torch.randn(1, token_count, 1, key_dim, dtype=dtype)
     k = torch.randn_like(q)
     v = torch.randn(1, token_count, 1, value_dim)
     raw_gate = torch.randn(token_count, 1, key_dim)
@@ -419,10 +422,11 @@ def test_kda_target_verify_follows_tree_parent_states_without_committing():
     normalized_q *= torch.rsqrt(
         (normalized_q * normalized_q).sum(dim=-1, keepdim=True) + 1e-6
     )
-    normalized_q *= key_dim**-0.5
     normalized_k *= torch.rsqrt(
         (normalized_k * normalized_k).sum(dim=-1, keepdim=True) + 1e-6
     )
+    normalized_q = normalized_q.to(dtype).float() * key_dim**-0.5
+    normalized_k = normalized_k.to(dtype).float()
     expected = torch.empty_like(v)
     expected_states = []
     for step in range(token_count):

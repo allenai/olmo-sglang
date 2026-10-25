@@ -588,8 +588,10 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         query = q.float().repeat_interleave(num_value_heads // q.shape[2], dim=2)
         key = k.float().repeat_interleave(num_value_heads // k.shape[2], dim=2)
         query *= torch.rsqrt((query * query).sum(dim=-1, keepdim=True) + 1e-6)
-        query *= key_dim**-0.5
         key *= torch.rsqrt((key * key).sum(dim=-1, keepdim=True) + 1e-6)
+        query = query.to(q.dtype).float()
+        key = key.to(k.dtype).float()
+        query *= key_dim**-0.5
         value = v.float()
         raw_gate = a.reshape(1, num_tokens, num_value_heads, key_dim).float()
         raw_beta = b.reshape(1, num_tokens, num_value_heads).float()
