@@ -1,10 +1,12 @@
 # Second-pass decode composition
 
-Qualification is in progress on H100 and B300. This branch integrates the eight
-individually measured performance options and the q/k rounding correction. It
-does not yet establish a composed speedup, a production recommendation, or
-learning-quality results. The [individual option measurements](decode-option-results.md)
-remain the evidence for the components.
+H100 timing and the original-q/k composition's free-generation agreement check
+are complete. Same-token numerical scoring and B300 qualification are still in
+progress. This branch integrates the eight individually measured performance
+options and the q/k rounding correction; it does not yet establish a production
+recommendation or learning-quality results. The
+[individual option measurements](decode-option-results.md) remain the evidence
+for the components.
 
 ## Configurations under test
 
@@ -20,6 +22,48 @@ The original-q/k source is a qualification control, not a proposed permanent
 configuration axis. The intended final configuration adopts q/k alignment after
 the composition's exact-output check and its separate numerical measurement.
 Fused routing remains an explicit opt-in throughput tradeoff.
+
+## H100 timing result
+
+These are the completed timing arms from the active H100 result dataset below;
+the final audit will recheck the finalized dataset after numerical scoring.
+Throughput uses the mean opening/closing control time for each paired wave.
+
+| Configuration | Fixed tokens/s | Change | Mixed tokens/s | Change |
+|---|---:|---:|---:|---:|
+| Current main, bracketed control | 5,724 | — | 3,605 | — |
+| Performance composition, original q/k | 6,127 | +7.03% | 3,859 | +7.07% |
+| Composition with q/k alignment | 6,126 | +7.02% | 3,854 | +6.91% |
+| Above plus optional fused routing | 6,228 | +8.80% | 3,915 | +8.59% |
+
+Opening-to-closing control drift was +0.87% fixed and +0.15% mixed. The
+three-wave paired bootstrap intervals for the aligned configuration's gains
+are [5.84%, 8.66%] fixed and [6.13%, 7.68%] mixed. These describe this panel;
+they do not establish machine/day variability. The 3–5% planning estimate was
+not a bound on the composed result.
+
+The optional fused router adds **1.66% fixed / 1.57% mixed** over the aligned
+composition, with paired-wave intervals [1.14%, 2.10%] and [1.52%, 1.64%]. This
+direct treatment comparison is not separately bracketed. Q/k alignment changed
+timing by −0.007% fixed and −0.14% mixed versus the original-q/k composition;
+neither interval excludes zero.
+
+The original-q/k performance composition matches both main controls exactly
+across all **384 requests / 1,035,090 output tokens**, including logprobs and
+the hashes of **1,155,807,232 bytes** of route data. Aligned and fused-router
+generation trajectories change; their numerical tradeoffs require the separate
+same-token replay results, which are still pending.
+
+The H100 traces confirm **625 → 479** graph kernels for the performance
+composition and **464** with the optional fused router. The latter replaces four
+launches per sparse layer with three: a zero-bias fill, the fused router, and a
+scale multiply. Thus it saves only 15 additional launches after the routing-tail
+and router-input fusions, explaining why its standalone gain cannot be added.
+Profiled graph-kernel sums were 8.178 ms for main, 7.804 ms for performance,
+7.827 ms with q/k alignment, and 7.665 ms with optional fused routing. These are
+profile attribution measurements; the throughput table uses unprofiled waves.
+
+## Select the candidate
 
 The performance configuration sets these variables before engine startup and
 graph capture. `source configs/decode-optimized.env` selects the complete
@@ -86,6 +130,8 @@ All four arms also force-score the same 384 requests / 1,035,090 frozen H100
 output tokens, with identical fresh-engine cache history on each GPU type.
 That preserves reuse of the pinned Core `e505356` reference: BF16 evaluation,
 natural routing, torch attention, one complete request/document, no EP.
+Those Core scores were computed on H100; both serving-hardware panels compare
+against that same fixed trainer reference.
 Forced selection synchronizes with the CPU; replay timing is diagnostic only.
 
 Numerical reports include MAE, signed serving-minus-Core error, p95/p99/maximum
@@ -149,6 +195,6 @@ evidence, and a gap alone does not establish a CPU bottleneck.
 
 Local validation: Ruff/format/diff checks passed; 174 portable tests passed,
 173 CUDA/runtime-dependent cases skipped. All ten H100 GPU prechecks passed,
-including the combined norm and KDA projection graph tests. Whole-engine
-throughput/agreement results and B300 qualification are pending. A 3–5% throughput gain over current
-main is a planning assumption only; no composed gain is claimed yet.
+including the combined norm and KDA projection graph tests. H100 timing and
+free-generation agreement results are above; same-token trainer tradeoffs,
+the finalized-dataset audit and B300 qualification remain pending.
