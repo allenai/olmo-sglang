@@ -22,7 +22,11 @@ the composition's exact-output check and its separate numerical measurement.
 Fused routing remains an explicit opt-in throughput tradeoff.
 
 The performance configuration sets these variables before engine startup and
-graph capture:
+graph capture. `source configs/decode-optimized.env` selects the complete
+candidate below; its qualification status is the status of this document.
+After sourcing, set `OLMO_SGLANG_ROUTING_KERNELS=fused` only to select the
+additional fused-routing tradeoff. BF16 q/k alignment is built into this
+revision and has no separate preset switch.
 
 ```bash
 export OLMO_SGLANG_SHARED_ADD_NORM=fused

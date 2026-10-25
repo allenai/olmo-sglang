@@ -11,6 +11,14 @@ from .analyze_trace import summarize as summarize_trace
 from .compare_logprobs import compare
 from .compare_panels import compare_panels
 
+CORE_COMMIT = "e505356353aa7ce1f6ff83e24d6eb945f463714e"
+CORE_CONTRACT = {
+    "core_builder_sha256": "e5cf4e0803d82b6756725cc9a84aa8aa6958138a859353f21295f69d14e988d6",
+    "attention_backend": "torch",
+    "routing": "natural",
+    "document_contract": "one complete request per document; fixed reference batches, no EP",
+}
+
 
 def read(path):
     return json.loads(path.read_text())
@@ -51,6 +59,32 @@ def provenance(report, arm, manifest):
         == (arm["options"]["SGLANG_USE_PICKLE_IPC"] == "true"),
         "Codec dispatch mismatch",
     )
+
+
+def core_provenance(core, paths):
+    metadata = read(core.parent / "provenance.json")
+    require(
+        metadata["core_commit"] == CORE_COMMIT and metadata["core_status"] == "",
+        "Changed Core source revision or dirty tree",
+    )
+    require(read(core.parent / "status.json")["code"] == 0, "Core scoring failed")
+    inputs = {Path(name).name: digest for name, digest in metadata["inputs"].items()}
+    require(inputs == {path.name: sha(path) for path in paths}, "Changed Core inputs")
+    runtime = read(core / "runtime-source.json")
+    require(
+        runtime["core_builder_sha256"] == CORE_CONTRACT["core_builder_sha256"],
+        "Changed Core builder",
+    )
+    return {
+        "commit": metadata["core_commit"],
+        "contract": CORE_CONTRACT,
+        "provenance_sha256": sha(core.parent / "provenance.json"),
+        "runtime_source_sha256": sha(core / "runtime-source.json"),
+        "score_files_sha256": {
+            "baseline-before-" + path.name: sha(core / ("baseline-before-" + path.name))
+            for path in paths
+        },
+    }
 
 
 def vectors(root, report):
@@ -275,8 +309,13 @@ def analyze(root, payload, core, output):
     all_core = []
     paths = sorted((payload / "reference").glob("tokens-*.json"))
     require(len(paths) == 6, "Need six frozen reference waves")
+    audit["core_provenance"] = core_provenance(core, paths)
     for path in paths:
         trainer = read(core / ("baseline-before-" + path.name))
+        require(
+            all(trainer[key] == value for key, value in CORE_CONTRACT.items()),
+            "Changed Core scoring contract",
+        )
         require(
             trainer["complete"] and trainer["input_sha256"] == sha(path),
             "Wrong Core reference input",

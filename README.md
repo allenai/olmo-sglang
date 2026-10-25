@@ -104,6 +104,7 @@ before opting in.
 | [Getting started](docs/getting-started.md) | Installation, registration, embedded inference, and serving |
 | [Compatibility](docs/compatibility.md) | Tested runtime, checkpoint contract, requirements, and constraints |
 | [Inference options](docs/inference-options.md) | Defaults, measured throughput/agreement tradeoffs, profiles, and candidate building blocks |
+| [Decode composition](docs/decode-composition.md) | Second-pass configuration, H100/B300 qualification status, and reproducible throughput/trainer comparisons |
 | [Design](docs/design.md) | Package boundaries, model integration, KDA state, radix caching, and speculation |
 | [Validation](docs/validation.md) | Tiny fixtures, parity tools, smoke tests, and developer checks |
 | [Status](docs/status.md) | Validation evidence, known numerical limits, and remaining work |
