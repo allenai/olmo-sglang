@@ -111,7 +111,38 @@ payload; its auxiliary benchmark/replay scripts are included in the dataset.
 Local preparation, analyses and the attempt ledger live under
 `open-instruct/runs/issue31-composition-20261024`.
 
-Local validation: Ruff/format/diff checks passed; 171 portable tests passed,
-173 CUDA/runtime-dependent cases skipped. GPU qualification and composed
-throughput/agreement results are pending. A 3–5% throughput gain over current
+### Reproduce the analysis
+
+After the result dataset is finalized, download it alongside the frozen payload
+and Core scores. From the repository root, in an environment with NumPy:
+
+```bash
+beaker dataset fetch 01M5R597W29Z0M528YKNQ0VYEB --output artifacts/composition/payload
+beaker dataset fetch 01M5R5BKEFMG1YZEJKV0HJ6E5Y --output artifacts/composition/h100
+beaker dataset fetch 01M5QH3K19XS37AFA3DTAJGW7F --output artifacts/composition/core-reference
+python -m tools.decode_composition.analyze \
+  --root artifacts/composition/h100 \
+  --payload artifacts/composition/payload \
+  --core artifacts/composition/core-reference/core \
+  --output artifacts/composition/h100-analysis
+```
+
+The analyzer rejects incomplete runs, changed source/configuration hashes,
+changed workloads, codec dispatch mismatches and mismatched scoring trajectories.
+It emits a compact audit and full per-prompt numerical comparisons, including
+incremental aligned-to-fused-router intervals. The paired-wave intervals use
+only three observations per workload and do not measure machine/day variance.
+The numerical intervals resample prompts, keeping repeated trajectories and all
+their tokens together; a million tokens are not a million independent samples.
+
+For a downloaded decode trace, run
+`python -m tools.decode_composition.analyze_trace TRACE --output PROFILE_SUMMARY`.
+Kernel sums, GPU activity union and elapsed span are reported separately.
+Use the unprofiled timed waves for throughput; profiled durations are attribution
+evidence, and a gap alone does not establish a CPU bottleneck.
+
+Local validation: Ruff/format/diff checks passed; 174 portable tests passed,
+173 CUDA/runtime-dependent cases skipped. All ten H100 GPU prechecks passed,
+including the combined norm and KDA projection graph tests. Whole-engine
+throughput/agreement results and B300 qualification are pending. A 3–5% throughput gain over current
 main is a planning assumption only; no composed gain is claimed yet.
