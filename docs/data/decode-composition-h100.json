@@ -1,0 +1,870 @@
+{
+  "artifacts": {
+    "experiment": "01M5R5BKE1MX67JVVBKV9SMXK8",
+    "result_dataset": "01M5R5BKEFMG1YZEJKV0HJ6E5Y",
+    "payload_dataset": "01M5R597W29Z0M528YKNQ0VYEB",
+    "core_reference_dataset": "01M5QH3K19XS37AFA3DTAJGW7F",
+    "result_committed": "2026-10-25T00:47:13.677983Z",
+    "runtime_sources": {
+      "baseline": {
+        "source": "baseline",
+        "options": {
+          "OLMO_SGLANG_SHARED_ADD_NORM": "torch",
+          "OLMO_SGLANG_ROUTING_TAIL": "torch",
+          "OLMO_SGLANG_ROUTER_INPUT": "torch",
+          "OLMO_SGLANG_SAMPLER": "torch",
+          "OLMO_SGLANG_KDA_PROJECTIONS": "torch",
+          "OLMO_SGLANG_MOE_PROJECTIONS": "torch",
+          "OLMO_SGLANG_KDA_GATE_PROJECTIONS": "torch",
+          "SGLANG_USE_PICKLE_IPC": "true",
+          "OLMO_SGLANG_ROUTING_KERNELS": "torch"
+        }
+      },
+      "performance": {
+        "source": "performance",
+        "options": {
+          "OLMO_SGLANG_SHARED_ADD_NORM": "fused",
+          "OLMO_SGLANG_ROUTING_TAIL": "fused",
+          "OLMO_SGLANG_ROUTER_INPUT": "fused",
+          "OLMO_SGLANG_SAMPLER": "fused",
+          "OLMO_SGLANG_KDA_PROJECTIONS": "packed",
+          "OLMO_SGLANG_MOE_PROJECTIONS": "packed",
+          "OLMO_SGLANG_KDA_GATE_PROJECTIONS": "grouped",
+          "SGLANG_USE_PICKLE_IPC": "false",
+          "OLMO_SGLANG_ROUTING_KERNELS": "torch"
+        }
+      },
+      "aligned": {
+        "source": "aligned",
+        "options": {
+          "OLMO_SGLANG_SHARED_ADD_NORM": "fused",
+          "OLMO_SGLANG_ROUTING_TAIL": "fused",
+          "OLMO_SGLANG_ROUTER_INPUT": "fused",
+          "OLMO_SGLANG_SAMPLER": "fused",
+          "OLMO_SGLANG_KDA_PROJECTIONS": "packed",
+          "OLMO_SGLANG_MOE_PROJECTIONS": "packed",
+          "OLMO_SGLANG_KDA_GATE_PROJECTIONS": "grouped",
+          "SGLANG_USE_PICKLE_IPC": "false",
+          "OLMO_SGLANG_ROUTING_KERNELS": "torch"
+        }
+      },
+      "fused-routing": {
+        "source": "aligned",
+        "options": {
+          "OLMO_SGLANG_SHARED_ADD_NORM": "fused",
+          "OLMO_SGLANG_ROUTING_TAIL": "fused",
+          "OLMO_SGLANG_ROUTER_INPUT": "fused",
+          "OLMO_SGLANG_SAMPLER": "fused",
+          "OLMO_SGLANG_KDA_PROJECTIONS": "packed",
+          "OLMO_SGLANG_MOE_PROJECTIONS": "packed",
+          "OLMO_SGLANG_KDA_GATE_PROJECTIONS": "grouped",
+          "SGLANG_USE_PICKLE_IPC": "false",
+          "OLMO_SGLANG_ROUTING_KERNELS": "fused"
+        }
+      }
+    },
+    "analysis_tool_sha256": "539acf7569e52f98861d8c3f9c851a6e98427f53cffd2a8ee29c7c190dce2b9d",
+    "runtime_revisions": {
+      "baseline": "70abc4adf7b0993e95cb2fef4a7a63db998ecef9",
+      "performance": "5dc7f4fdb441e2670a8daf89890b284fd1ba7f2e",
+      "aligned": "62b206f7070e03bd2160a202c29f51f65df7493c",
+      "sglang": "3145136dcd1238754e0ea2b2ffd546532119c71c"
+    },
+    "hardware_detail": "NVIDIA H100 80GB HBM3, GPU-35f92b23-1439-f4fc-7b25-adf0cfe00946, 570.124.06, 81559 MiB",
+    "packages": {
+      "torch": "2.13.0+cu130",
+      "sglang": "0.5.19.dev49+g3145136",
+      "olmo-sglang": "0.1.0",
+      "triton": "3.7.1",
+      "flash-linear-attention": "0.5.2"
+    },
+    "engine_config": {
+      "model_path": "/weka/olmo-3p5-checkpoints/scratch/olmo35-fixedtok-sft-20260921/olmo35-fixedtok-sft-20260921-4t-non-emo-dolci-think/emo/step5402/hf",
+      "trust_remote_code": true,
+      "skip_tokenizer_init": true,
+      "dtype": "bfloat16",
+      "tp_size": 1,
+      "attention_backend": "triton",
+      "sampling_backend": "pytorch",
+      "random_seed": 31,
+      "disable_radix_cache": false,
+      "cuda_graph_backend_decode": "full",
+      "cuda_graph_bs_decode": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64
+      ],
+      "cuda_graph_backend_prefill": "disabled",
+      "context_length": 12288,
+      "max_total_tokens": 786432,
+      "max_running_requests": 64,
+      "max_mamba_cache_size": 1024,
+      "chunked_prefill_size": 8192,
+      "max_prefill_tokens": 8192,
+      "mem_fraction_static": 0.7,
+      "mamba_radix_cache_strategy": "extra_buffer",
+      "enable_return_routed_experts": true
+    },
+    "core_hardware": "NVIDIA H100 80GB HBM3"
+  },
+  "hardware": "H100",
+  "manifest_sha256": "c2bd941d4aed12220b7e973cace01a8b143504a17fd616a348f6e0e66a5d2c92",
+  "throughput": {
+    "performance": {
+      "workload_sha256": "5bb7d672c6500bd974b88503ad86ac90ba8af98954c3fcb094709fcc76a2a215",
+      "cells": [
+        {
+          "panel": "fixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 5699.39749521693,
+          "baseline_after_tps": 5749.147178509686,
+          "bracketed_baseline_tps": 5724.164243168508,
+          "candidate_tps": 6126.517066298875,
+          "throughput_change_fraction": 0.07029023033546844,
+          "paired_wave_change_fractions": [
+            0.05761994976030138,
+            0.08585828247211569,
+            0.0644995977248255
+          ],
+          "baseline_after_vs_before_fraction": 0.008728937284073757,
+          "paired_wave_bootstrap_95pct": [
+            0.05761994976030138,
+            0.08585828247211569
+          ]
+        },
+        {
+          "panel": "mixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 3602.121259750443,
+          "baseline_after_tps": 3607.462187355771,
+          "bracketed_baseline_tps": 3604.7897452482653,
+          "candidate_tps": 3859.473117029942,
+          "throughput_change_fraction": 0.07065138046328312,
+          "paired_wave_change_fractions": [
+            0.06975787540953249,
+            0.07689379586877121,
+            0.06630826493012298
+          ],
+          "baseline_after_vs_before_fraction": 0.0014827173268725513,
+          "paired_wave_bootstrap_95pct": [
+            0.06630826493012298,
+            0.07689379586877121
+          ]
+        }
+      ],
+      "startup_seconds": {
+        "before": 56.94235207000747,
+        "candidate": 39.68583545398724,
+        "after": 29.321354034007527
+      },
+      "warmup_seconds": {
+        "before": 7.518643922987394,
+        "candidate": 1.405259831008152,
+        "after": 1.4831030650093453
+      },
+      "limitation": "Three waves give limited uncertainty estimates; inspect control drift and repeat if gains are small or inconsistent.",
+      "decision": "Throughput evidence only; same-token numerical and real RL gates remain separate."
+    },
+    "aligned": {
+      "workload_sha256": "5bb7d672c6500bd974b88503ad86ac90ba8af98954c3fcb094709fcc76a2a215",
+      "cells": [
+        {
+          "panel": "fixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 5699.39749521693,
+          "baseline_after_tps": 5749.147178509686,
+          "bracketed_baseline_tps": 5724.164243168508,
+          "candidate_tps": 6126.107238712492,
+          "throughput_change_fraction": 0.07021863427900099,
+          "paired_wave_change_fractions": [
+            0.058441593230131206,
+            0.08661700928228755,
+            0.06254679878253055
+          ],
+          "baseline_after_vs_before_fraction": 0.008728937284073757,
+          "paired_wave_bootstrap_95pct": [
+            0.058441593230131206,
+            0.08661700928228755
+          ]
+        },
+        {
+          "panel": "mixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 3602.121259750443,
+          "baseline_after_tps": 3607.462187355771,
+          "bracketed_baseline_tps": 3604.7897452482653,
+          "candidate_tps": 3854.0489322697836,
+          "throughput_change_fraction": 0.0691466644760863,
+          "paired_wave_change_fractions": [
+            0.07085688152471681,
+            0.07676226951182685,
+            0.06130154046991598
+          ],
+          "baseline_after_vs_before_fraction": 0.0014827173268725513,
+          "paired_wave_bootstrap_95pct": [
+            0.06130154046991598,
+            0.07676226951182685
+          ]
+        }
+      ],
+      "startup_seconds": {
+        "before": 56.94235207000747,
+        "candidate": 31.627110278001055,
+        "after": 29.321354034007527
+      },
+      "warmup_seconds": {
+        "before": 7.518643922987394,
+        "candidate": 1.3903765290015144,
+        "after": 1.4831030650093453
+      },
+      "limitation": "Three waves give limited uncertainty estimates; inspect control drift and repeat if gains are small or inconsistent.",
+      "decision": "Throughput evidence only; same-token numerical and real RL gates remain separate."
+    },
+    "fused-routing": {
+      "workload_sha256": "5bb7d672c6500bd974b88503ad86ac90ba8af98954c3fcb094709fcc76a2a215",
+      "cells": [
+        {
+          "panel": "fixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 5699.39749521693,
+          "baseline_after_tps": 5749.147178509686,
+          "bracketed_baseline_tps": 5724.164243168508,
+          "candidate_tps": 6227.62969898937,
+          "throughput_change_fraction": 0.08795440424717427,
+          "paired_wave_change_fractions": [
+            0.07593979553165786,
+            0.10944216237682425,
+            0.07462585600174743
+          ],
+          "baseline_after_vs_before_fraction": 0.008728937284073757,
+          "paired_wave_bootstrap_95pct": [
+            0.07462585600174743,
+            0.10944216237682425
+          ]
+        },
+        {
+          "panel": "mixed",
+          "concurrency": 64,
+          "waves": 3,
+          "baseline_before_tps": 3602.121259750443,
+          "baseline_after_tps": 3607.462187355771,
+          "bracketed_baseline_tps": 3604.7897452482653,
+          "candidate_tps": 3914.5160250864574,
+          "throughput_change_fraction": 0.085920761466453,
+          "paired_wave_change_fractions": [
+            0.08836783314896857,
+            0.09351068952363684,
+            0.07742540402472109
+          ],
+          "baseline_after_vs_before_fraction": 0.0014827173268725513,
+          "paired_wave_bootstrap_95pct": [
+            0.07742540402472109,
+            0.09351068952363684
+          ]
+        }
+      ],
+      "startup_seconds": {
+        "before": 56.94235207000747,
+        "candidate": 30.032766924996395,
+        "after": 29.321354034007527
+      },
+      "warmup_seconds": {
+        "before": 7.518643922987394,
+        "candidate": 1.3595316400023876,
+        "after": 1.4831030650093453
+      },
+      "limitation": "Three waves give limited uncertainty estimates; inspect control drift and repeat if gains are small or inconsistent.",
+      "decision": "Throughput evidence only; same-token numerical and real RL gates remain separate."
+    }
+  },
+  "incremental_throughput": {
+    "performance_to_aligned": {
+      "cells": [
+        {
+          "panel": "fixed",
+          "throughput_change_fraction": -6.689405774074064e-05,
+          "paired_wave_change_fractions": [
+            0.0007768797005163197,
+            0.0006987346529643279,
+            -0.001834475979576422
+          ],
+          "paired_wave_bootstrap_95pct": [
+            -0.001834475979576422,
+            0.0007768797005163197
+          ]
+        },
+        {
+          "panel": "mixed",
+          "throughput_change_fraction": -0.0014054210498899433,
+          "paired_wave_change_fractions": [
+            0.0010273409903744923,
+            -0.00012213493795676378,
+            -0.004695381837385493
+          ],
+          "paired_wave_bootstrap_95pct": [
+            -0.004695381837385493,
+            0.0010273409903744923
+          ]
+        }
+      ],
+      "limitation": "Direct paired treatment comparison, not separately bracketed; inspect the panel's repeated-main drift. Three waves do not characterize machine/day variance."
+    },
+    "aligned_to_fused-routing": {
+      "cells": [
+        {
+          "panel": "fixed",
+          "throughput_change_fraction": 0.016572099756160252,
+          "paired_wave_change_fractions": [
+            0.016532043348869152,
+            0.02100570200867069,
+            0.01136802372663226
+          ],
+          "paired_wave_bootstrap_95pct": [
+            0.01136802372663226,
+            0.02100570200867069
+          ]
+        },
+        {
+          "panel": "mixed",
+          "throughput_change_fraction": 0.01568923848122039,
+          "paired_wave_change_fractions": [
+            0.01635228005381939,
+            0.015554426901866814,
+            0.015192537596492972
+          ],
+          "paired_wave_bootstrap_95pct": [
+            0.015192537596492972,
+            0.01635228005381939
+          ]
+        }
+      ],
+      "limitation": "Direct paired treatment comparison, not separately bracketed; inspect the panel's repeated-main drift. Three waves do not characterize machine/day variance."
+    }
+  },
+  "free_vectors": {
+    "performance": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 0,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": true
+    },
+    "aligned": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 384,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": false
+    },
+    "fused-routing": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 384,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": false
+    },
+    "baseline-after": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 0,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": true
+    }
+  },
+  "route_equality": {
+    "baseline-before": {
+      "exact": true,
+      "bytes": 1155807232
+    },
+    "performance": {
+      "exact": true,
+      "bytes": 1155807232
+    },
+    "aligned": {
+      "exact": false,
+      "bytes": 1155807232
+    },
+    "fused-routing": {
+      "exact": false,
+      "bytes": 1155807232
+    },
+    "baseline-after": {
+      "exact": true,
+      "bytes": 1155807232
+    }
+  },
+  "phase_seconds": [
+    {
+      "name": "precheck-check_shared_add",
+      "code": 0,
+      "seconds": 3.471128550998401
+    },
+    {
+      "name": "precheck-check_router_input",
+      "code": 0,
+      "seconds": 3.872124867004459
+    },
+    {
+      "name": "precheck-check_routing_tail",
+      "code": 0,
+      "seconds": 3.721388770005433
+    },
+    {
+      "name": "precheck-check_sampler",
+      "code": 0,
+      "seconds": 3.822170108993305
+    },
+    {
+      "name": "precheck-check_transport",
+      "code": 0,
+      "seconds": 13.391086101997644
+    },
+    {
+      "name": "precheck-check_kda_projections",
+      "code": 0,
+      "seconds": 18.900645852991147
+    },
+    {
+      "name": "precheck-check_moe_projections",
+      "code": 0,
+      "seconds": 15.743686253001215
+    },
+    {
+      "name": "precheck-check_kda_gates",
+      "code": 0,
+      "seconds": 18.706830793991685
+    },
+    {
+      "name": "precheck-check_decode_composition",
+      "code": 0,
+      "seconds": 12.889320432004752
+    },
+    {
+      "name": "precheck-qk",
+      "code": 0,
+      "seconds": 19.553260518005118
+    },
+    {
+      "name": "baseline-before",
+      "code": 0,
+      "seconds": 351.7133064880036
+    },
+    {
+      "name": "performance",
+      "code": 0,
+      "seconds": 309.43084925699804
+    },
+    {
+      "name": "aligned",
+      "code": 0,
+      "seconds": 300.4784820799978
+    },
+    {
+      "name": "fused-routing",
+      "code": 0,
+      "seconds": 295.0155989249906
+    },
+    {
+      "name": "baseline-after",
+      "code": 0,
+      "seconds": 310.76057138499164
+    },
+    {
+      "name": "replay-baseline",
+      "code": 0,
+      "seconds": 382.4182537119923
+    },
+    {
+      "name": "replay-performance",
+      "code": 0,
+      "seconds": 367.67441424199205
+    },
+    {
+      "name": "replay-aligned",
+      "code": 0,
+      "seconds": 367.1973073179979
+    },
+    {
+      "name": "replay-fused-routing",
+      "code": 0,
+      "seconds": 362.12219834700227
+    }
+  ],
+  "profiles": {
+    "baseline-before": {
+      "trace": "baseline-before/profile/1792886524.5043023-TP-0-DECODE.trace.json.gz",
+      "trace_sha256": "b534bd78f7095ef6f95487275266e2b7d198dc2dee197c3ee11b8cc77136c360",
+      "step_count": 64,
+      "graph_kernel_count_per_step": 625.0,
+      "graph_kernel_ms_per_step": 8.178186390625,
+      "all_gpu_active_union_ms_per_step": 8.464550632476806,
+      "all_gpu_span_ms_per_step": 9.202811000823974,
+      "family_ms_per_step": {
+        "expert GEMMs": 5.562045484374982,
+        "other GEMMs and reductions": 0.9674587343750141,
+        "KDA recurrence": 0.619964015625,
+        "other graph kernels": 0.3341791718750003,
+        "router selection/normalization (partial)": 0.26610268749999905,
+        "tensor copies/casts": 0.15317920312499975,
+        "RMS normalization": 0.12185632812500033,
+        "SwiGLU/SiLU": 0.07618824999999944,
+        "expert alignment": 0.04411425000000008,
+        "expert weighted reduction": 0.03309826562500007
+      },
+      "summary_sha256": "c36a505199e9e495bbd67b95870f12b924251f4c400b3f3afe03d90e24eecc3f"
+    },
+    "performance": {
+      "trace": "performance/profile/1792886835.1461701-TP-0-DECODE.trace.json.gz",
+      "trace_sha256": "1f5389bfd75f3eee9fc89b03dab40deb93adb497e86e9ff4541f3aca71c753b1",
+      "step_count": 64,
+      "graph_kernel_count_per_step": 479.0,
+      "graph_kernel_ms_per_step": 7.8042645,
+      "all_gpu_active_union_ms_per_step": 8.03198537826538,
+      "all_gpu_span_ms_per_step": 8.646054779052735,
+      "family_ms_per_step": {
+        "expert GEMMs": 5.559111437499989,
+        "other GEMMs and reductions": 0.6699342500000104,
+        "KDA recurrence": 0.621008953125001,
+        "other graph kernels": 0.27811212499999716,
+        "router selection/normalization (partial)": 0.23182684374999885,
+        "RMS normalization": 0.12860446875000073,
+        "tensor copies/casts": 0.08425060937500058,
+        "SwiGLU/SiLU": 0.057144609374999905,
+        "grouped second-stage KDA GEMMs": 0.05220173437499995,
+        "expert alignment": 0.043705484375000034,
+        "expert weighted reduction": 0.033727609375000016,
+        "latent split and shared activation": 0.02425809374999988,
+        "routing-tail normalization": 0.020378281250000047
+      },
+      "summary_sha256": "92e8ddcd306e0a1a911ae8e0cb92efbba7d673e5dd5ae7a1bef85a70270a6876"
+    },
+    "aligned": {
+      "trace": "aligned/profile/1792887135.7313097-TP-0-DECODE.trace.json.gz",
+      "trace_sha256": "16b28770c95396dc1ef6c3adcb06f7bad7b3608f0fd80285e26caca27854a650",
+      "step_count": 64,
+      "graph_kernel_count_per_step": 479.0,
+      "graph_kernel_ms_per_step": 7.827026390625,
+      "all_gpu_active_union_ms_per_step": 8.05623307800293,
+      "all_gpu_span_ms_per_step": 8.646196403503417,
+      "family_ms_per_step": {
+        "expert GEMMs": 5.579368687500004,
+        "other GEMMs and reductions": 0.6705356562500044,
+        "KDA recurrence": 0.6230703593750003,
+        "other graph kernels": 0.27779578125000004,
+        "router selection/normalization (partial)": 0.23294634374999879,
+        "RMS normalization": 0.12889893750000078,
+        "tensor copies/casts": 0.08414331250000076,
+        "SwiGLU/SiLU": 0.05654601562499975,
+        "grouped second-stage KDA GEMMs": 0.052120515624999864,
+        "expert alignment": 0.04382604687499998,
+        "expert weighted reduction": 0.03306026562500003,
+        "latent split and shared activation": 0.0242940156249999,
+        "routing-tail normalization": 0.02042045312500003
+      },
+      "summary_sha256": "38b442c3773693a807c12288d3753190548652f236db7ed356b0f0b08e36fcbc"
+    },
+    "fused-routing": {
+      "trace": "fused-routing/profile/1792887430.50948-TP-0-DECODE.trace.json.gz",
+      "trace_sha256": "4f50e518853d44813083a6edf93b31713037a1e6efb423336b38c093d26d00df",
+      "step_count": 64,
+      "graph_kernel_count_per_step": 464.0,
+      "graph_kernel_ms_per_step": 7.66534121875,
+      "all_gpu_active_union_ms_per_step": 7.89565779876709,
+      "all_gpu_span_ms_per_step": 8.537907329559326,
+      "family_ms_per_step": {
+        "expert GEMMs": 5.549356171874994,
+        "other GEMMs and reductions": 0.6691460781250101,
+        "KDA recurrence": 0.6227659375000006,
+        "other graph kernels": 0.40091514062498906,
+        "RMS normalization": 0.12841712500000096,
+        "tensor copies/casts": 0.08476340625000024,
+        "SwiGLU/SiLU": 0.05658767187499985,
+        "grouped second-stage KDA GEMMs": 0.052234749999999885,
+        "expert alignment": 0.04380495312500003,
+        "expert weighted reduction": 0.033183343750000024,
+        "latent split and shared activation": 0.02416664062499985
+      },
+      "summary_sha256": "6802eee5c5dd0ae97bbd49623c434f95e31a922966b20d79fff068ff26e34d4f"
+    }
+  },
+  "core_provenance": {
+    "commit": "e505356353aa7ce1f6ff83e24d6eb945f463714e",
+    "contract": {
+      "core_builder_sha256": "e5cf4e0803d82b6756725cc9a84aa8aa6958138a859353f21295f69d14e988d6",
+      "attention_backend": "torch",
+      "routing": "natural",
+      "document_contract": "one complete request per document; fixed reference batches, no EP"
+    },
+    "provenance_sha256": "7540f080564f3e971e9af76a9db35640f0f66cb9523599d2a883ec353a3b29e6",
+    "runtime_source_sha256": "897bb3a213c5264d89750bd0200c85b1525602e7510bd0787b68a1b793bbb0bc",
+    "score_files_sha256": {
+      "baseline-before-tokens-fixed-c64-r0.json": "286725907bb3ad77f17c53f56e8af32a6af2abde49f29df7dc9bbbcef01d63cb",
+      "baseline-before-tokens-fixed-c64-r1.json": "ada3844f644bfbf45a5848cb69a5f0e11f691bd15f0cab4acb22200455368390",
+      "baseline-before-tokens-fixed-c64-r2.json": "2fa41c789bb2cb6294fd43a0b44f87a2e267fe44a28b6bb8d4a001c4b574397f",
+      "baseline-before-tokens-mixed-c64-r0.json": "baff0d245a1606eb51b2cac9655f05fcc00003d7169cb01313e91efc72698ed7",
+      "baseline-before-tokens-mixed-c64-r1.json": "d1065f1705a06e66fc6fb1dec871941beb51bc3cbb7b541279f82fd7ffd72c60",
+      "baseline-before-tokens-mixed-c64-r2.json": "d5df566cb689bed59b5277ed67fcf1d7afee6c32989141086ed80111b39f7a8f"
+    }
+  },
+  "forced_vectors": {
+    "performance": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 0,
+      "changed_logprobs_on_identical_trajectories": 0,
+      "max_abs_logprob_change_on_identical_trajectories": 0.0,
+      "exact": true
+    },
+    "aligned": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 0,
+      "changed_logprobs_on_identical_trajectories": 1034058,
+      "max_abs_logprob_change_on_identical_trajectories": 2.5061516761779785,
+      "exact": false
+    },
+    "fused-routing": {
+      "requests": 384,
+      "tokens": 1035090,
+      "trajectories_with_changed_ids": 0,
+      "changed_logprobs_on_identical_trajectories": 1034472,
+      "max_abs_logprob_change_on_identical_trajectories": 2.62080454826355,
+      "exact": false
+    }
+  },
+  "trainer_comparisons": {
+    "baseline_to_performance": {
+      "requests": 384,
+      "prompt_clusters": 128,
+      "tokens": 1035090,
+      "baseline": {
+        "mean_abs": 0.03695125148337553,
+        "signed_mean": 0.0017890456025116677,
+        "p95_abs": 0.13192309141159056,
+        "p99_abs": 0.23230753898620604,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.01664009892859558
+      },
+      "candidate": {
+        "mean_abs": 0.03695125148337553,
+        "signed_mean": 0.0017890456025116677,
+        "p95_abs": 0.13192309141159056,
+        "p99_abs": 0.23230753898620604,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.01664009892859558
+      },
+      "change": {
+        "mean_abs": 0.0,
+        "signed_mean": 0.0,
+        "p95_abs": 0.0,
+        "p99_abs": 0.0,
+        "max_abs": 0.0,
+        "outside_20pct": 0.0
+      },
+      "additive_metric_change_prompt_bootstrap_95pct": {
+        "mean_abs": [
+          0.0,
+          0.0
+        ],
+        "signed_mean": [
+          0.0,
+          0.0
+        ],
+        "outside_20pct": [
+          0.0,
+          0.0
+        ]
+      },
+      "sha256": "d75d246529948f27286ada62b67a232c6a36187822bcb22febcb384012f0f407"
+    },
+    "baseline_to_aligned": {
+      "requests": 384,
+      "prompt_clusters": 128,
+      "tokens": 1035090,
+      "baseline": {
+        "mean_abs": 0.03695125148337553,
+        "signed_mean": 0.0017890456025116677,
+        "p95_abs": 0.13192309141159056,
+        "p99_abs": 0.23230753898620604,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.01664009892859558
+      },
+      "candidate": {
+        "mean_abs": 0.036966273942368184,
+        "signed_mean": 9.521858892619263e-05,
+        "p95_abs": 0.1319754362106323,
+        "p99_abs": 0.2319702529907226,
+        "max_abs": 1.2524166107177734,
+        "outside_20pct": 0.01701977605812055
+      },
+      "change": {
+        "mean_abs": 1.5022458992652865e-05,
+        "signed_mean": -0.0016938270135854752,
+        "p95_abs": 5.2344799041731394e-05,
+        "p99_abs": -0.0003372859954834384,
+        "max_abs": -2.0469307899475098,
+        "outside_20pct": 0.000379677129524969
+      },
+      "additive_metric_change_prompt_bootstrap_95pct": {
+        "mean_abs": [
+          -8.757959206856221e-05,
+          0.00012003211649094068
+        ],
+        "signed_mean": [
+          -0.0018259691779087188,
+          -0.0015512410246599237
+        ],
+        "outside_20pct": [
+          7.22772325167581e-05,
+          0.0006889621183481114
+        ]
+      },
+      "sha256": "a0e03c56cd75d2a7a4a24e5c37c88289d2822a6e1be0b96256d429492538afa4"
+    },
+    "baseline_to_fused-routing": {
+      "requests": 384,
+      "prompt_clusters": 128,
+      "tokens": 1035090,
+      "baseline": {
+        "mean_abs": 0.03695125148337553,
+        "signed_mean": 0.0017890456025116677,
+        "p95_abs": 0.13192309141159056,
+        "p99_abs": 0.23230753898620604,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.01664009892859558
+      },
+      "candidate": {
+        "mean_abs": 0.03698768154242436,
+        "signed_mean": 0.00011812176990114604,
+        "p95_abs": 0.13219668865203854,
+        "p99_abs": 0.23282972335815422,
+        "max_abs": 1.6273765563964844,
+        "outside_20pct": 0.017307673728854497
+      },
+      "change": {
+        "mean_abs": 3.643005904882535e-05,
+        "signed_mean": -0.0016709238326105217,
+        "p95_abs": 0.0002735972404479814,
+        "p99_abs": 0.0005221843719481756,
+        "max_abs": -1.6719708442687988,
+        "outside_20pct": 0.0006675748002589153
+      },
+      "additive_metric_change_prompt_bootstrap_95pct": {
+        "mean_abs": [
+          -7.381877480088119e-05,
+          0.000147905553676154
+        ],
+        "signed_mean": [
+          -0.0017959094944676652,
+          -0.001532821012098776
+        ],
+        "outside_20pct": [
+          0.00036809819778335146,
+          0.0009667790581042874
+        ]
+      },
+      "sha256": "efd3dc61311af46db5299b372f3bf15868b899bc22db9822e8c214a3383864c7"
+    },
+    "performance_to_aligned": {
+      "requests": 384,
+      "prompt_clusters": 128,
+      "tokens": 1035090,
+      "baseline": {
+        "mean_abs": 0.03695125148337553,
+        "signed_mean": 0.0017890456025116677,
+        "p95_abs": 0.13192309141159056,
+        "p99_abs": 0.23230753898620604,
+        "max_abs": 3.299347400665283,
+        "outside_20pct": 0.01664009892859558
+      },
+      "candidate": {
+        "mean_abs": 0.036966273942368184,
+        "signed_mean": 9.521858892619263e-05,
+        "p95_abs": 0.1319754362106323,
+        "p99_abs": 0.2319702529907226,
+        "max_abs": 1.2524166107177734,
+        "outside_20pct": 0.01701977605812055
+      },
+      "change": {
+        "mean_abs": 1.5022458992652865e-05,
+        "signed_mean": -0.0016938270135854752,
+        "p95_abs": 5.2344799041731394e-05,
+        "p99_abs": -0.0003372859954834384,
+        "max_abs": -2.0469307899475098,
+        "outside_20pct": 0.000379677129524969
+      },
+      "additive_metric_change_prompt_bootstrap_95pct": {
+        "mean_abs": [
+          -8.757959206856221e-05,
+          0.00012003211649094068
+        ],
+        "signed_mean": [
+          -0.0018259691779087188,
+          -0.0015512410246599237
+        ],
+        "outside_20pct": [
+          7.22772325167581e-05,
+          0.0006889621183481114
+        ]
+      },
+      "sha256": "a0e03c56cd75d2a7a4a24e5c37c88289d2822a6e1be0b96256d429492538afa4"
+    },
+    "aligned_to_fused-routing": {
+      "requests": 384,
+      "prompt_clusters": 128,
+      "tokens": 1035090,
+      "baseline": {
+        "mean_abs": 0.036966273942368184,
+        "signed_mean": 9.521858892619263e-05,
+        "p95_abs": 0.1319754362106323,
+        "p99_abs": 0.2319702529907226,
+        "max_abs": 1.2524166107177734,
+        "outside_20pct": 0.01701977605812055
+      },
+      "candidate": {
+        "mean_abs": 0.03698768154242436,
+        "signed_mean": 0.00011812176990114604,
+        "p95_abs": 0.13219668865203854,
+        "p99_abs": 0.23282972335815422,
+        "max_abs": 1.6273765563964844,
+        "outside_20pct": 0.017307673728854497
+      },
+      "change": {
+        "mean_abs": 2.1407600056172482e-05,
+        "signed_mean": 2.2903180974953415e-05,
+        "p95_abs": 0.00022125244140625,
+        "p99_abs": 0.000859470367431614,
+        "max_abs": 0.37495994567871094,
+        "outside_20pct": 0.0002878976707339463
+      },
+      "additive_metric_change_prompt_bootstrap_95pct": {
+        "mean_abs": [
+          -7.003026371816423e-05,
+          0.00011628475675087205
+        ],
+        "signed_mean": [
+          -7.859283541319292e-05,
+          0.00012767151935243778
+        ],
+        "outside_20pct": [
+          -1.4343650430857186e-05,
+          0.0006087629563619215
+        ]
+      },
+      "sha256": "f7cd24ed0140d08fcc569e52f9438c3cbe9a88d56d945c833b41200fefcb9f39"
+    }
+  }
+}

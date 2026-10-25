@@ -181,6 +181,11 @@ These are short screening results. The final repeated control was preempted.
 They do not establish a learning-quality impact or a speedup on B300, nor an
 incremental gain when combined with PR #15. The measured outlier increase failed
 the original no-additional-divergence criterion, so fused routing remains opt-in.
+The later [second-pass composition panel](decode-composition.md) completed
+bracketing controls on both H100 and B300 and measured the router's incremental
+effect with paired prompt-cluster intervals. That B300 result improves aggregate
+agreement relative to its aligned control; the older screen is not a universal
+accuracy label for this option.
 Recheck throughput and same-token trainer agreement for the intended checkpoint,
 runtime, and workload before choosing it. See the
 [issue #31 report](https://github.com/allenai/oe-planning/issues/31#issuecomment-6386644696)
