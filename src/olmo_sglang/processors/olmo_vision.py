@@ -62,11 +62,15 @@ class OlmoImageProcessor(BaseMultimodalProcessor):
             image_data or []
         ):
             raise ValueError("Supply exactly one <|image|> placeholder per image")
+        # The base loader needs text only to match media to placeholders. Give
+        # it that inventory, preserving the original IDs exclusively for prepare.
+        # Passing the tokenized prompt would decode it unnecessarily (and setting
+        # return_text=False alone asserts in the pinned SGLang loader).
         loaded = await self.load_mm_data(
-            prompt=input_text,
+            prompt=self.mm_tokens.image_token * len(image_data or []),
             multimodal_tokens=self.mm_tokens,
             image_data=image_data,
-            return_text=True,
+            return_text=False,
         )
         input_ids, images = self._processor.prepare(ids, loaded.images)
         items = []

@@ -31,6 +31,25 @@ def text_config(config: Any) -> Any:
     return config
 
 
+def validate_causal_image_attention(
+    document_mode: bool | None, *, has_recurrent_mixers: bool
+) -> None:
+    """Match pinned Core's image-mask policy before selecting a causal backend.
+
+    Document boundaries imply causal image tokens. Recurrent models are also
+    causal when boundaries are disabled: Core discards token_type_ids there.
+    Attention-only models without document mode can use bidirectional images.
+    """
+    if document_mode is not None and type(document_mode) is not bool:
+        raise ValueError("Core document_mode must be a boolean or None")
+    if document_mode is not True and not has_recurrent_mixers:
+        raise ValueError(
+            "Image inference requires causal image attention: use a recurrent "
+            "Core model or document_mode=True. Bidirectional image attention "
+            "is not supported."
+        )
+
+
 def validate_vision_config(config: Any) -> None:
     """Reject unsupported layouts and image IDs before allocating model weights."""
     if field(config, "model_type") != VISION_MODEL_TYPE:
@@ -51,6 +70,11 @@ def validate_vision_config(config: Any) -> None:
             "language-only exports may omit trained image-token rows. Restore them "
             "from the original checkpoint; do not initialize or remap them."
         )
+    core_model = field(field(config, "olmo_core_config", {}), "model", {})
+    validate_causal_image_attention(
+        field(core_model, "document_mode"),
+        has_recurrent_mixers="linear_attention" in field(text, "layer_types", []),
+    )
     vision = field(config, "vision_config", {})
     connector = field(config, "connector_config", {})
     if not isinstance(vision, Mapping) or not isinstance(connector, Mapping):

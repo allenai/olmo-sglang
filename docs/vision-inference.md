@@ -17,6 +17,20 @@ model explicitly bypasses a second embedding normalization for this path.
 Attention remains causal, as required by the KDA model. No bidirectional Molmo
 image-attention mask is introduced.
 
+The model and processor validate the exported checkpoint's image-attention
+policy. In the pinned Core version, `document_mode=True` is causal, and KDA
+models are causal with **any** `document_mode` value: explicitly setting it to
+`False` disables packed-document boundaries and discards image-token masks; it
+does not enable bidirectional images. Attention-only models with `False` or an
+unspecified mode can use bidirectional image attention and are rejected. Missing
+layer metadata also fails unless Core's explicit `document_mode=True` establishes
+causality. The scoring tool independently checks the original Core setting and
+the instantiated model's recurrent mixers before loading weights, rather than
+using its single-document scoring override to establish compatibility.
+CPU regressions exercise pinned Core's actual mask construction with image-token
+type IDs across all six combinations of recurrent/attention-only models and
+`document_mode=None/False/True`.
+
 SGLang's existing multimodal interfaces handle image-dependent padded IDs,
 feature caching and chunk slicing. Hashes cover pixel tensors, pooling indices
 and image-token layout. Only patch-token runs are replaced: start/end/column
@@ -143,7 +157,8 @@ full trained vocabulary. Core revision is `8f8ae5df42de590268b87b3701679f8c21aec
 MoE fallback helpers come unchanged from olmo-eval
 `2f383bc7d26aa413a99ad2a97b7b8c7e099ddc0c`. Attention uses Torch SDPA.
 This probe feeds one unpadded causal document per call: `document_mode=False`
-avoids Core Torch attention's unsupported packed-document metadata. It does not
+avoids Core Torch attention's unsupported packed-document metadata. The checkpoint's
+original attention policy is checked separately before scoring. It does not
 add bidirectional image attention. No generation/KV-cache patches are installed
 in the reference scoring model.
 

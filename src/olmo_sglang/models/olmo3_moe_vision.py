@@ -72,8 +72,8 @@ class Olmo3MoeVisionForConditionalGeneration(nn.Module):
             pixels = item.feature.to(device=parameter.device, dtype=parameter.dtype)
             pools = item.pooling_indices.to(parameter.device)
             with torch.profiler.record_function("olmo.vision_encoder_connector"):
-                encoded = vision_module.OlmoVisionStack.encode_images(
-                    self, pixels, pools
+                encoded = vision_module.encode_images(
+                    self.vision_tower, self.connector, self.vit_layers, pixels, pools
                 )
             encoded = encoded.reshape(-1, encoded.shape[-1])
             count = sum(end - start + 1 for start, end in item.offsets)

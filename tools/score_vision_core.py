@@ -18,6 +18,7 @@ from olmo_core.nn.vision.multimodal import MultimodalLMConfig
 from PIL import Image
 from safetensors.torch import load_file
 
+from olmo_sglang.vision.config import validate_causal_image_attention
 from olmo_sglang.vision.processing import OlmoVisionProcessor
 
 
@@ -56,11 +57,17 @@ def main():
             json.loads((root / "olmo_core_config.json").read_text())["model"]
         )
     )
+    checkpoint_document_mode = cfg.document_mode
     # This probe feeds one unpadded document at a time. Core's plain Torch
     # backend rejects packed-document metadata; no boundary is needed here.
     cfg.document_mode = False
     started = time.perf_counter()
     model = cfg.build(init_device="meta")
+    # Check the checkpoint's original attention policy, not the override above.
+    # Inspect actual Core modules so an incorrect HF export cannot hide a mismatch.
+    validate_causal_image_attention(
+        checkpoint_document_mode, has_recurrent_mixers=model.has_recurrent_mixers()
+    )
     state = load_file(root / "model.safetensors")
     model.load_state_dict(state, strict=True, assign=True)
     del state
@@ -82,6 +89,8 @@ def main():
         "normalizer": "full_core_vocabulary",
         "attention_backend": "torch",
         "document_mode": "single_unpadded_causal_sequence",
+        "checkpoint_document_mode": checkpoint_document_mode,
+        "has_recurrent_mixers": model.has_recurrent_mixers(),
         "reference_moe_fallback": args.reference_moe_fallback,
     }
     for record in inference["records"]:

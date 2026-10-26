@@ -27,6 +27,9 @@ from tools.create_tiny_parity_checkpoint import build_checkpoint
 processing = pytest.importorskip("olmo_sglang.vision.processing", exc_type=ImportError)
 checkpoint = pytest.importorskip("olmo_sglang.vision.checkpoint", exc_type=ImportError)
 vision_model = pytest.importorskip("olmo_sglang.vision.model", exc_type=ImportError)
+core_multimodal = pytest.importorskip(
+    "olmo_core.nn.vision.multimodal", exc_type=ImportError
+)
 audit_checkpoint = checkpoint.audit_checkpoint
 restore_vocabulary = checkpoint.restore_vocabulary
 OlmoVisionStack = vision_model.OlmoVisionStack
@@ -38,7 +41,12 @@ build_image_token_ids = processing.build_image_token_ids
 def config():
     return {
         "model_type": "olmo3moe_vision",
-        "text_config": {"model_type": "olmo3moe", "vocab_size": 16, "hidden_size": 8},
+        "text_config": {
+            "model_type": "olmo3moe",
+            "vocab_size": 16,
+            "hidden_size": 8,
+            "layer_types": ["linear_attention"],
+        },
         "image_patch_token_id": 6,
         "vit_layers": [1, 0],
         "vision_config": {
@@ -297,6 +305,65 @@ def image_processor(export_pair):
     cfg["olmo_core_config"] = {"recipe": {"max_crops": 1}}
     (output / "config.json").write_text(json.dumps(cfg))
     return processing.OlmoVisionProcessor.from_pretrained(output)
+
+
+@pytest.mark.parametrize("document_mode", [None, False, True])
+def test_processor_checks_checkpoint_attention_policy(image_processor, document_mode):
+    p = image_processor
+    config = copy.deepcopy(p.config)
+    config["olmo_core_config"]["model"] = {"document_mode": document_mode}
+    # Core's recurrent path is causal even with document boundaries disabled.
+    processing.OlmoVisionProcessor(config, p.tokenizer)
+    config["text_config"]["layer_types"] = ["full_attention"]
+    if document_mode is True:
+        processing.OlmoVisionProcessor(config, p.tokenizer)
+    else:
+        with pytest.raises(ValueError, match="Bidirectional image attention"):
+            processing.OlmoVisionProcessor(config, p.tokenizer)
+
+
+def test_processor_reports_missing_end_turn_token(image_processor, monkeypatch):
+    p = image_processor
+    vocab = p.tokenizer.get_vocab()
+    del vocab["<|im_end|>"]
+    monkeypatch.setattr(p.tokenizer, "get_vocab", lambda: vocab)
+    with pytest.raises(ValueError, match="missing required <\\|im_end\\|>"):
+        processing.OlmoVisionProcessor(p.config, p.tokenizer)
+
+
+@pytest.mark.parametrize("document_mode", [None, False, True])
+@pytest.mark.parametrize("recurrent", [False, True])
+def test_pinned_core_image_mask_policy(document_mode, recurrent, monkeypatch):
+    # Exercise Core's actual forward mask construction with image-token type IDs.
+    # Substitute the decoder only, so this proves the policy without CUDA kernels.
+    class MaskRecorder(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.embeddings = torch.nn.Embedding(4, 2)
+            self.device = torch.device("cpu")
+            self.embed_scale = self.embedding_norm = None
+
+        def forward(self, input_ids, **kwargs):
+            return kwargs
+
+    monkeypatch.delenv("OLMO2_FLEX_ATTN", raising=False)
+    model = core_multimodal.MultimodalLM.__new__(core_multimodal.MultimodalLM)
+    torch.nn.Module.__init__(model)
+    model.cfg = SimpleNamespace(output_vocab_size=None)
+    model._document_mode = document_mode
+    model._recurrent_mixers = recurrent
+    model._collect_input_diagnostics = False
+    model.lm = MaskRecorder()
+    model.eval()
+    output = model(
+        torch.tensor([[0, 1, 2, 3]]),
+        token_type_ids=torch.tensor([[0, 1, 1, 0]]),
+    )
+    if document_mode is True or recurrent:
+        assert output["or_mask"] is None
+    else:
+        assert output["or_mask"][0, 0, 1, 2]  # Future image token is visible.
+        assert not output["or_mask"][0, 0, 0, 2]  # Text remains causal.
 
 
 def test_image_processor_matches_core_and_preserves_tokenized_prompt(image_processor):

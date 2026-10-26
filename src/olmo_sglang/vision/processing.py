@@ -52,6 +52,9 @@ class OlmoVisionProcessor(ProcessorMixin):
         super().__init__(tokenizer=tokenizer)
         self.config = config
         ids = validate_image_tokenizer(config, tokenizer)
+        end_turn = tokenizer.get_vocab().get("<|im_end|>")
+        if end_turn is None:
+            raise ValueError("Tokenizer is missing required <|im_end|> token")
         self.token_ids = Molmo2TokenIds(
             im_start_id=ids["<im_start>"],
             im_end_id=ids["<im_end>"],
@@ -59,7 +62,7 @@ class OlmoVisionProcessor(ProcessorMixin):
             im_col_id=ids["<im_col>"],
             low_res_im_start_id=ids["<low_res_im_start>"],
             image_placeholder_id=ids["<|image|>"],
-            im_end_turn_id=tokenizer.get_vocab()["<|im_end|>"],
+            im_end_turn_id=end_turn,
         )
         vision = field(config, "vision_config")
         if (

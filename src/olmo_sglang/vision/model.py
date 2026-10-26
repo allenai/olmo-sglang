@@ -68,26 +68,33 @@ class OlmoVisionStack(nn.Module):
         return loaded
 
     def encode_images(self, images, pooled_patches_idx):
-        """Map pre-patchified crops [B,T,N,P] to LM features [B,pooled,D].
+        return encode_images(
+            self.vision_tower,
+            self.connector,
+            self.vit_layers,
+            images,
+            pooled_patches_idx,
+        )
 
-        Raw image preprocessing and serving request integration belong to #65.
-        Padded pooling rows are preserved, matching Core's connector contract.
-        """
-        if images.ndim != 4 or pooled_patches_idx.ndim != 3:
-            raise ValueError(
-                "Expected images [B,T,N,P] and pooling indices [B,pooled,K]"
-            )
-        b, crops, patches, width = images.shape
-        if not b or not crops or not patches or pooled_patches_idx.shape[0] != b:
-            raise ValueError("Image and pooling batch sizes must agree and be nonempty")
-        if pooled_patches_idx.dtype != torch.long:
-            raise ValueError("Pooling indices must have dtype int64")
-        if bool(
-            ((pooled_patches_idx < -1) | (pooled_patches_idx >= crops * patches)).any()
-        ):
-            raise ValueError("Pooling index outside the crop/patch range")
-        hidden = self.vision_tower(images.reshape(b * crops, patches, width))
-        selected = [hidden[i] for i in self.vit_layers]
-        features = torch.cat(selected, dim=-1) if len(selected) > 1 else selected[0]
-        features = features.reshape(b, crops * patches, features.shape[-1])
-        return self.connector(features, pooled_patches_idx)
+
+def encode_images(vision_tower, connector, vit_layers, images, pooled_patches_idx):
+    """Map pre-patchified crops [B,T,N,P] to LM features [B,pooled,D].
+
+    Padded pooling rows are preserved, matching Core's connector contract.
+    """
+    if images.ndim != 4 or pooled_patches_idx.ndim != 3:
+        raise ValueError("Expected images [B,T,N,P] and pooling indices [B,pooled,K]")
+    b, crops, patches, width = images.shape
+    if not b or not crops or not patches or pooled_patches_idx.shape[0] != b:
+        raise ValueError("Image and pooling batch sizes must agree and be nonempty")
+    if pooled_patches_idx.dtype != torch.long:
+        raise ValueError("Pooling indices must have dtype int64")
+    if bool(
+        ((pooled_patches_idx < -1) | (pooled_patches_idx >= crops * patches)).any()
+    ):
+        raise ValueError("Pooling index outside the crop/patch range")
+    hidden = vision_tower(images.reshape(b * crops, patches, width))
+    selected = [hidden[i] for i in vit_layers]
+    features = torch.cat(selected, dim=-1) if len(selected) > 1 else selected[0]
+    features = features.reshape(b, crops * patches, features.shape[-1])
+    return connector(features, pooled_patches_idx)

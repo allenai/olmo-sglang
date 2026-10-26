@@ -35,11 +35,11 @@ def model_and_cache(monkeypatch):
     vision_module = ModuleType("olmo_sglang.vision.model")
     calls = []
 
-    def encode_images(model, pixels, pools):
+    def encode_images(vision_tower, connector, vit_layers, pixels, pools):
         calls.append(True)
-        return model.connector(model.vision_tower(pixels))
+        return connector(vision_tower(pixels))
 
-    vision_module.OlmoVisionStack = SimpleNamespace(encode_images=encode_images)
+    vision_module.encode_images = encode_images
     monkeypatch.setitem(sys.modules, vision_module.__name__, vision_module)
     schedule = ModuleType("sglang.srt.managers.mm_schedule")
     schedule.embedding_cache = {}
@@ -52,6 +52,7 @@ def model_and_cache(monkeypatch):
     model = cls.__new__(cls)
     torch.nn.Module.__init__(model)
     model.config = SimpleNamespace(image_patch_token_id=2)
+    model.vit_layers = (0,)
     with torch.random.fork_rng():
         torch.manual_seed(29)
         model.vision_tower = torch.nn.Linear(4, 4, bias=False)
