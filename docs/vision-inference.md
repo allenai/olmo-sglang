@@ -25,6 +25,15 @@ TP=1 without speculation. Audio/video, quantized models and caller-supplied
 precomputed embeddings are rejected. Image accuracy, production serving and
 long-context behavior must not be inferred from a short smoke run.
 
+Reloading a complete checkpoint through the model's `load_weights` clears
+SGLang's process-local image embedding cache before any parameter writes,
+including attempts that fail after partial updates. These cached features depend
+on the visual tower, connector, learned patch embedding and embedding norm;
+SGLang's KV/KDA cache flush alone does not invalidate them. Direct/custom weight
+update APIs that bypass the model loader are not qualified for this image path;
+use a fresh engine for those changes. Weight reloads must follow the engine's
+normal idle/paused-update and KV/KDA-flush lifecycle.
+
 ## Usage
 
 Install Core `8f8ae5df42de590268b87b3701679f8c21aecfcf` alongside the pinned

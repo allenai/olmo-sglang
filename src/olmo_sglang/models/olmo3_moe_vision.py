@@ -5,6 +5,7 @@ addition and SGLang handles hashed image tokens and chunked feature placement.
 """
 
 import importlib
+import sys
 from collections.abc import Iterable
 
 import torch
@@ -135,6 +136,15 @@ class Olmo3MoeVisionForConditionalGeneration(nn.Module):
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
         """Stream LM tensors to its native loader; load all vision tensors strictly."""
+        # Image features also contain learned patch embeddings and their norm.
+        # Their content-only cache keys survive SGLang's KV/KDA flush. Invalidate
+        # before any writes, including reloads that fail after a partial update.
+        # Initial loading can precede cache initialization; avoid importing the
+        # scheduler (and its GPU dependencies) just to discover an absent cache.
+        schedule = sys.modules.get("sglang.srt.managers.mm_schedule")
+        cache = getattr(schedule, "embedding_cache", None)
+        if cache is not None:
+            cache.clear()
         visual = {
             name: p
             for name, p in self.named_parameters()
