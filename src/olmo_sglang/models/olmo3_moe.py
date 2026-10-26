@@ -756,13 +756,19 @@ class Olmo3MoeModel(nn.Module):
         positions: torch.Tensor,
         forward_batch: ForwardBatch,
         input_embeds: torch.Tensor | None = None,
+        input_embeds_normalized: bool = False,
     ) -> torch.Tensor:
-        hidden_states = (
-            self.embed_tokens(input_ids) if input_embeds is None else input_embeds
-        )
-        hidden_states = _scale_then_norm(
-            self.embed_norm, hidden_states, self.embed_scale
-        )
+        if input_embeds_normalized:
+            if input_embeds is None:
+                raise ValueError("Normalized embeddings must be supplied explicitly")
+            hidden_states = input_embeds
+        else:
+            hidden_states = (
+                self.embed_tokens(input_ids) if input_embeds is None else input_embeds
+            )
+            hidden_states = _scale_then_norm(
+                self.embed_norm, hidden_states, self.embed_scale
+            )
         for layer in self.layers:
             hidden_states = layer(positions, hidden_states, forward_batch)
         return self.norm(hidden_states)
@@ -807,6 +813,13 @@ class Olmo3MoeForCausalLM(nn.Module):
             )
             self.logits_processor = LogitsProcessor(config)
 
+    def get_normalized_embeddings(self, input_ids: torch.Tensor) -> torch.Tensor:
+        return _scale_then_norm(
+            self.model.embed_norm,
+            self.model.embed_tokens(input_ids),
+            self.model.embed_scale,
+        )
+
     def get_input_embeddings(self) -> nn.Module:
         return self.model.embed_tokens
 
@@ -830,8 +843,15 @@ class Olmo3MoeForCausalLM(nn.Module):
         positions: torch.Tensor,
         forward_batch: ForwardBatch,
         input_embeds: torch.Tensor | None = None,
+        input_embeds_normalized: bool = False,
     ) -> torch.Tensor:
-        hidden_states = self.model(input_ids, positions, forward_batch, input_embeds)
+        hidden_states = self.model(
+            input_ids,
+            positions,
+            forward_batch,
+            input_embeds,
+            input_embeds_normalized=input_embeds_normalized,
+        )
         return self.logits_processor(
             input_ids, hidden_states, self.lm_head, forward_batch
         )

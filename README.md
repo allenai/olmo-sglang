@@ -107,6 +107,7 @@ before opting in.
 | [Decode composition](docs/decode-composition.md) | Second-pass configuration, H100/B300 qualification status, and reproducible throughput/trainer comparisons |
 | [Design](docs/design.md) | Package boundaries, model integration, KDA state, radix caching, and speculation |
 | [Validation](docs/validation.md) | Tiny fixtures, parity tools, smoke tests, and developer checks |
+| [Vision inference](docs/vision-inference.md) | Experimental image preprocessing, feature injection, and bounded validation |
 | [Vision checkpoints](docs/vision-checkpoints.md) | Experimental full-component loading, vocabulary restoration, and CPU validation |
 | [Status](docs/status.md) | Validation evidence, known numerical limits, and remaining work |
 | [Development](docs/development.md) | Repository layout, test commands, and contribution guidance |

@@ -10,8 +10,8 @@ text model. No new tokenizer IDs are guessed at model load.
 This is checkpoint-loading groundwork for [planning #63](https://github.com/allenai/oe-planning/issues/63).
 Image request preprocessing, post-normalization feature injection, generated
 answers and image-serving qualification are tracked in
-[#65](https://github.com/allenai/oe-planning/issues/65). The entry point rejects
-image batches and externally supplied embeddings until that integration exists.
+[#65](https://github.com/allenai/oe-planning/issues/65). The follow-on [image inference integration](vision-inference.md) implements
+image requests; externally supplied embeddings remain unsupported.
 Do not use this branch as a production image server or infer task accuracy from
 the CPU feature check.
 

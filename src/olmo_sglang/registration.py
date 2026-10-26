@@ -25,6 +25,13 @@ def register() -> None:
             f"{_EXTERNAL_PACKAGE_ENV} already selects {configured_package!r}; cannot also select {MODEL_PACKAGE!r}"
         )
     os.environ[_EXTERNAL_PACKAGE_ENV] = MODEL_PACKAGE
+    processor_package = "olmo_sglang.processors"
+    configured_processor = os.environ.get("SGLANG_EXTERNAL_MM_PROCESSOR_PACKAGE")
+    if configured_processor not in (None, "", processor_package):
+        raise RuntimeError(
+            "A different external multimodal processor package is already selected"
+        )
+    os.environ["SGLANG_EXTERNAL_MM_PROCESSOR_PACKAGE"] = processor_package
 
     try:
         from sglang.srt.models.registry import ModelRegistry
