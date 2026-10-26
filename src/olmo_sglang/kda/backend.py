@@ -28,6 +28,7 @@ from sglang.srt.layers.attention.linear.kernels.kernel_backend import (
 )
 
 from olmo_sglang import core_compat
+from olmo_sglang.vision.config import VISION_ARCHITECTURE, text_config
 
 EXPECTED_FLA_VERSION = "0.5.2"
 _OLMO_MODEL_ARCHITECTURE = "Olmo3MoeForCausalLM"
@@ -298,7 +299,8 @@ def _enable_olmo_extra_buffer_capability() -> None:
     extra_buffer_archs = getattr(overrides, "_MAMBA_EXTRA_BUFFER_ARCHS", None)
     if extra_buffer_archs is not None:
         overrides._MAMBA_EXTRA_BUFFER_ARCHS = extra_buffer_archs | {
-            _OLMO_MODEL_ARCHITECTURE
+            _OLMO_MODEL_ARCHITECTURE,
+            VISION_ARCHITECTURE,
         }
 
 
@@ -319,7 +321,8 @@ def register_olmo_kda_backend() -> None:
         LinearAttnModelSpec(
             config_class=_OlmoKDAConfig,
             backend_class_name="olmo_sglang.kda.backend.OlmoKDAAttnBackend",
-            arch_names=[_OLMO_MODEL_ARCHITECTURE],
+            arch_names=[_OLMO_MODEL_ARCHITECTURE, VISION_ARCHITECTURE],
+            unwrap_text_config=True,
             uses_mamba_radix_cache=True,
             support_mamba_cache=True,
             support_mamba_cache_extra_buffer=True,
@@ -737,7 +740,7 @@ class OlmoKDAAttnBackend(KDAAttnBackend):
 
     def __init__(self, model_runner: Any) -> None:
         super().__init__(model_runner)
-        config = model_runner.model_config.hf_config
+        config = text_config(model_runner.model_config.hf_config)
         model_runner.model_config.full_attention_layer_ids = (
             config.full_attention_layer_ids
         )

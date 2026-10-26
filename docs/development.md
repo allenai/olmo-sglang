@@ -45,9 +45,10 @@ Direct test and lint dependencies are pinned in `requirements/`; update those
 pins together with a passing CPU run. The runtime package deliberately has no
 mandatory dependencies, so installing it does not replace a serving stack.
 
-`--cpu-only` excludes seven modules that import SGLang internals during collection:
+`--cpu-only` excludes runtime-dependent modules that import SGLang internals during collection:
 Core-compatible attention, EP diagnostics, KDA backend, KDA radix cache, KDA
-tensor parallelism, speculative KDA kernels, and model weight targets. The
+tensor parallelism, speculative KDA kernels, and other CUDA-dependent model tests. Checkpoint-name resolution is portable and
+runs in the CPU suite. The
 remaining suite covers
 configuration, registration, activations, attention, routing, reference models,
 compatibility metadata, serving diagnostics, and validation
