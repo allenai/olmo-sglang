@@ -18,6 +18,7 @@ from itertools import pairwise
 from typing import Any
 
 import torch
+from sglang.srt import runtime_context
 from sglang.srt.configs.mamba_utils import (
     BaseLinearStateParams,
     Mamba2StateDType,
@@ -255,13 +256,17 @@ def _prepare_olmo_config(config: Any) -> bool:
         for index, layer_type in enumerate(layer_types)
         if layer_type != "linear_attention"
     ]
-    from sglang.srt.runtime_context import get_parallel
-
     try:
-        tp_world_size = get_parallel().attn_tp_size
+        tp_world_size = runtime_context.get_parallel().attn_tp_size
     except AssertionError:
         # ModelConfig is also constructed once before distributed groups exist.
         # Every TP worker constructs a fresh copy after group initialization.
+        tp_world_size = 1
+    except RuntimeError:
+        # Newer SGLang distinguishes unpublished derived widths from invalid
+        # published configuration. Only the initial ModelConfig uses TP1 here.
+        if runtime_context.get_context().is_config_namespace_published("parallel"):
+            raise
         tp_world_size = 1
     config.mamba2_cache_params = OlmoKDACacheParams(
         shape=OlmoKDAStateShape.from_config(config, tp_world_size=tp_world_size),
