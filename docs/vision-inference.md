@@ -108,9 +108,10 @@ result dataset `01M5TJH45RJHVPN2TWXMSN2NP9`. It exited successfully in 252 s
   called once; subsequent chunks reuse its features. Profiling perturbs timings.
 
 Runtime: SGLang `0.5.19.dev49+g3145136`, torch `2.13.0+cu130`, Transformers
-`5.12.1`, FLA `0.5.2`, NVIDIA H100 80GB HBM3. CUDA graphs were disabled. TP>1,
-speculation, production concurrency, long contexts and uncapped benchmark
-accuracy remain unqualified.
+`5.12.1`, FLA `0.5.2`, NVIDIA H100 80GB HBM3. CUDA graphs were disabled. The full
+counting evaluation below adds task-accuracy and concurrent-request evidence;
+TP>1, speculation, graph-enabled production serving and long contexts remain
+unqualified.
 
 `tools/score_vision_ocr_smoke.py` applies the official diagnostic checks.
 `tools/score_vision_core.py` scores the identical saved response prefixes with
@@ -151,3 +152,51 @@ belongs to the next validation pass.
 
 Combined CPU checks, official OCR diagnostics, per-token scores and provenance
 are preserved in evidence dataset `01M5TKC07G4Z1G2X0D4TQW92MF`.
+
+## Full PixMo-Count validation
+
+The image provider in [olmo-eval #510](https://github.com/allenai/olmo-eval/pull/510)
+evaluated all 540 examples in the PixMo-Count validation split using this model
+implementation at `ee6c6959d39ac42a554859c8ac4e17ae4f02cfd1`. The reference is
+Jason's historical **OLMo-core** run, not vLLM; its separate test-split score is
+not used in this comparison.
+
+| Result | SGLang | OLMo-core reference |
+|---|---:|---:|
+| Correct / total | 440 / 540 | 442 / 540 |
+| Accuracy | 81.48% | 81.85% |
+| Correct only in this implementation | 8 | 10 |
+
+The paired accuracy difference is -0.37 percentage points; the image-bootstrap
+95% interval is [-1.85, +1.11] points. This describes uncertainty across these
+images, not run-to-run numerical variation or an equivalence test. All 540
+SGLang requests completed without failures or empty outputs, all raw token
+logprobs validated, and one generation reached the 192-token limit. Counting
+scores do not establish identical point localization or numerical equivalence.
+
+Both evaluations use document prompts, causal image attention, BF16, temperature
+zero, one sample and the same task cap and scoring. The candidate uses the
+complete-vocabulary restoration audited in [checkpoint loading](vision-checkpoints.md).
+Preflight verified all row IDs, labels and image mappings and reproduced the
+reference's 442/540 score. Current image hashes are retained; the historical
+reference did not retain image hashes.
+
+The candidate ran on one H100 with CUDA graphs disabled and 256-token prefill
+chunks. It requested concurrency 512, but the KDA state pool limited the engine
+to 287 active requests; the maximum logged running count was 286. This supplies
+concurrent image-inference evidence, not a qualified C512 or graph-enabled
+production result. Inference-batch time was 224.03 s, including cold compilation;
+the full container ran for 322.59 s. The historical reference used eight B300
+workers across several tasks, so these runs do not provide a matched throughput
+comparison.
+
+Runs:
+
+1. [SGLang full validation](https://beaker.org/ex/01M5TQ548V5RRMG9C6JK90M26E).
+2. [Historical OLMo-core reference](https://beaker.org/ex/01M5QM9QD8ATBTHM2MMCSM9EP0).
+
+The [comparison bundle](https://beaker.org/ds/01M5TQKG7VZ648R8NT5G6DKWX0)
+retains generations, token logprobs, per-image comparisons, input mappings and
+reproducible analysis. olmo-eval revision:
+`ffd00ced6187643f05c5b464f8881fdc0587612d`. Broader vision tasks and serving modes
+remain separate qualification work.
