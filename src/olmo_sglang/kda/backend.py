@@ -28,6 +28,7 @@ from sglang.srt.layers.attention.linear.kernels.kernel_backend import (
 )
 
 from olmo_sglang import core_compat
+from olmo_sglang.kda import state_snapshot
 
 EXPECTED_FLA_VERSION = "0.5.2"
 _OLMO_MODEL_ARCHITECTURE = "Olmo3MoeForCausalLM"
@@ -332,6 +333,7 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
     """FLA 0.5.2 KDA kernel with OLMo's exact beta activation."""
 
     supports_packed_decode = False
+    supports_track_state_snapshot = True
 
     _RUN_ARGUMENTS = frozenset(
         {
@@ -342,6 +344,8 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
             "query_start_loc",
             "return_intermediate_states",
             "lower_bound",
+            "track_state",
+            "track_chunk_idx",
         }
     )
 
@@ -390,6 +394,8 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         query_start_loc: torch.Tensor,
         return_intermediate_states: bool = False,
         lower_bound: float | None = None,
+        track_state: torch.Tensor | None = None,
+        track_chunk_idx: torch.Tensor | None = None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         if lower_bound is not None:
             raise NotImplementedError(
@@ -398,6 +404,13 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
 
         from fla.ops.kda import chunk_kda
 
+        if (track_state is None) != (track_chunk_idx is None):
+            raise ValueError(
+                "Tracked states and chunk indices must be supplied together"
+            )
+        tracked = track_state is not None
+        if tracked:
+            chunk_kda = state_snapshot.chunk_kda
         initial_state, valid = self._gather_initial_state(ssm_states, cache_indices)
         core_layout = getattr(self, "core_compat", False)
         raw_gate = raw_gate.reshape(q.shape[0], q.shape[1], v.shape[2], q.shape[-1])
@@ -405,7 +418,9 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         if self.allow_neg_eigval:
             beta = beta * 2.0
         inference_context = (
-            torch.inference_mode() if return_intermediate_states else nullcontext()
+            torch.inference_mode()
+            if return_intermediate_states or tracked
+            else nullcontext()
         )
         with inference_context:
             if core_layout:
@@ -421,6 +436,8 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
                     initial_state,
                     query_start_loc,
                     return_intermediate_states,
+                    track_state=track_state,
+                    track_chunk_idx=track_chunk_idx,
                 )
             else:
                 result = chunk_kda(
@@ -438,6 +455,11 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
                     return_intermediate_states=return_intermediate_states,
                     transpose_state_layout=True,
                     cu_seqlens=query_start_loc,
+                    **(
+                        {"track_state": track_state, "track_chunk_idx": track_chunk_idx}
+                        if tracked
+                        else {}
+                    ),
                 )
         output, final_state = result[:2]
         self._commit_final_state(ssm_states, cache_indices, final_state, valid)
@@ -463,6 +485,9 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
         initial_state,
         query_start_loc,
         intermediate,
+        *,
+        track_state=None,
+        track_chunk_idx=None,
     ):
         """Use Core's single-sequence [K,V] dispatch, preserving SGLang caches."""
         outputs, states, snapshots = [], [], []
@@ -474,6 +499,12 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
             # Fresh requests have no prior state in Core's forward. Cached prefix
             # extensions retain their state; no populated cache is discarded.
             prior = state if torch.count_nonzero(state).item() else None
+            tracked = track_state is not None
+            track = (
+                track_state[index : index + 1].transpose(-1, -2).contiguous()
+                if tracked
+                else None
+            )
             result = chunk_kda(
                 q=q[:, start:end].contiguous(),
                 k=k[:, start:end].contiguous(),
@@ -489,7 +520,17 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
                 return_intermediate_states=intermediate,
                 transpose_state_layout=False,
                 cu_seqlens=None,
+                **(
+                    {
+                        "track_state": track,
+                        "track_chunk_idx": track_chunk_idx[index : index + 1],
+                    }
+                    if tracked
+                    else {}
+                ),
             )
+            if tracked:
+                track_state[index : index + 1].copy_(track.transpose(-1, -2))
             outputs.append(result[0])
             states.append(result[1].transpose(-1, -2).contiguous())
             if intermediate:

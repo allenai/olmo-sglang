@@ -9,6 +9,7 @@ _RUNTIME_TEST_MODULES = {
     "test_core_attention.py",
     "test_ep_diagnostics.py",
     "test_kda_backend.py",
+    "test_kda_state_snapshot.py",
     "test_kda_radix_cache.py",
     "test_kda_tp.py",
     "test_speculative_kda.py",
