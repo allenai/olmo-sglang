@@ -11,6 +11,7 @@ import torch
 from torch import nn
 
 from olmo_sglang.models.olmo3_moe import Olmo3MoeForCausalLM
+from olmo_sglang.vision import embedding
 from olmo_sglang.vision.config import validate_vision_config
 from olmo_sglang.vision.weights import validate_language_coverage
 from olmo_sglang.weight_loading import STACKED_PARAMS_MAPPING, WeightTargets
@@ -40,6 +41,7 @@ class Olmo3MoeVisionForConditionalGeneration(nn.Module):
         self.vit_layers = stack.vit_layers
         lm_prefix = f"{prefix}.language_model" if prefix else "language_model"
         self.language_model = Olmo3MoeForCausalLM(config.text_config, prefix=lm_prefix)
+        self._checkpoint_loaded = False
 
     def get_input_embeddings(self):
         return self.language_model.get_input_embeddings()
@@ -78,16 +80,9 @@ class Olmo3MoeVisionForConditionalGeneration(nn.Module):
             count = sum(end - start + 1 for start, end in item.offsets)
             if encoded.shape[0] != count:
                 raise ValueError("Image features and patch-token positions disagree")
-            patch_ids = torch.full(
-                (count,),
-                self.config.image_patch_token_id,
-                dtype=torch.long,
-                device=parameter.device,
-            )
-            base = self.language_model.get_normalized_embeddings(patch_ids)
-            # Core: embedding -> scale -> norm -> add, including the trained
-            # patch-token embedding. Generic replacement alone would drop it.
-            features.append(base + encoded.to(base.dtype))
+            # SGLang caches this result by image identity. Only the frozen
+            # visual features belong here; LM patch embeddings change in RL.
+            features.append(encoded)
         return torch.cat(features, dim=0)
 
     @torch.no_grad()
@@ -104,6 +99,12 @@ class Olmo3MoeVisionForConditionalGeneration(nn.Module):
                 )
             utils = importlib.import_module("sglang.srt.managers.mm_utils")
             selected = [i for i, value in enumerate(mm_inputs) if value is not None]
+            pad_values = [
+                item.pad_value for i in selected for item in mm_inputs[i].mm_items
+            ]
+            patch_mask = torch.isin(
+                input_ids, torch.tensor(pad_values, device=input_ids.device)
+            )
             with torch.profiler.record_function("olmo.image_embedding_and_placement"):
                 embeds, _ = utils.embed_mm_inputs(
                     mm_inputs_list=[mm_inputs[i] for i in selected],
@@ -116,6 +117,12 @@ class Olmo3MoeVisionForConditionalGeneration(nn.Module):
                     input_ids=input_ids,
                     input_embedding=_NormalizedEmbedding(self.language_model),
                     multimodal_model=self,
+                )
+                embeds = embedding.add_patch_embedding(
+                    embeds,
+                    patch_mask,
+                    self.language_model,
+                    self.config.image_patch_token_id,
                 )
             # Retain a CPU fallback for future chunks if the embedding cache evicts.
             for i in selected:
@@ -134,7 +141,12 @@ class Olmo3MoeVisionForConditionalGeneration(nn.Module):
         return self.language_model(input_ids, positions, forward_batch)
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
-        """Stream LM tensors to its native loader; load all vision tensors strictly."""
+        """Require a full initial checkpoint; later buckets may update only the LM.
+
+        The serving engine's begin/end update session owns request exclusion and
+        cache invalidation. After initialization, visual tensors are immutable.
+        This permits the same bucketed LM publication used by the text model.
+        """
         visual = {
             name: p
             for name, p in self.named_parameters()
@@ -173,6 +185,10 @@ class Olmo3MoeVisionForConditionalGeneration(nn.Module):
                     language_targets.add(target)
                     yield (local_name, tensor, *extra)
                 elif name in visual:
+                    if self._checkpoint_loaded:
+                        raise ValueError(
+                            "Frozen vision/connector tensors cannot be updated"
+                        )
                     parameter = visual[name]
                     if (
                         extra
@@ -189,21 +205,23 @@ class Olmo3MoeVisionForConditionalGeneration(nn.Module):
                     raise ValueError(f"Unexpected multimodal checkpoint tensor: {name}")
 
         loaded_lm = self.language_model.load_weights(language_weights())
-        validate_language_coverage(
-            language_parameters,
-            language_targets,
-            STACKED_PARAMS_MAPPING,
-            self.language_model.config.n_routed_experts,
-        )
-        expected_lm = set(dict(self.language_model.named_parameters()))
-        if missing_lm := expected_lm - loaded_lm:
-            raise ValueError(
-                f"Missing language checkpoint parameters: {sorted(missing_lm)}"
+        if not self._checkpoint_loaded:
+            validate_language_coverage(
+                language_parameters,
+                language_targets,
+                STACKED_PARAMS_MAPPING,
+                self.language_model.config.n_routed_experts,
             )
-        if missing_visual := visual.keys() - loaded_visual:
-            raise ValueError(
-                f"Missing vision checkpoint parameters: {sorted(missing_visual)}"
-            )
+            expected_lm = set(language_parameters)
+            if missing_lm := expected_lm - loaded_lm:
+                raise ValueError(
+                    f"Missing language checkpoint parameters: {sorted(missing_lm)}"
+                )
+            if missing_visual := visual.keys() - loaded_visual:
+                raise ValueError(
+                    f"Missing vision checkpoint parameters: {sorted(missing_visual)}"
+                )
+            self._checkpoint_loaded = True
         return loaded_visual | {"language_model." + name for name in loaded_lm}
 
 

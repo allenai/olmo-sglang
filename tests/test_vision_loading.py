@@ -274,12 +274,33 @@ def test_serving_wrapper_streams_all_components_and_rejects_external_embeddings(
         for name, tensor in weights
     )
     with pytest.raises(ValueError, match="Duplicate"):
-        model.load_weights(iter(weights + weights[:1]))
+        module.Olmo3MoeVisionForConditionalGeneration(cfg).load_weights(
+            iter(weights + weights[:1])
+        )
     missing_visual = [(n, t) for n, t in weights if n != weights[0][0]]
     with pytest.raises(ValueError, match="Missing vision"):
-        model.load_weights(iter(missing_visual))
+        module.Olmo3MoeVisionForConditionalGeneration(cfg).load_weights(
+            iter(missing_visual)
+        )
     with pytest.raises(ValueError, match="Unexpected"):
-        model.load_weights(iter(weights + [("unknown.weight", torch.ones(1))]))
+        module.Olmo3MoeVisionForConditionalGeneration(cfg).load_weights(
+            iter(weights + [("unknown.weight", torch.ones(1))])
+        )
+    frozen = {
+        n: p.clone()
+        for n, p in model.named_parameters()
+        if not n.startswith("language_model.")
+    }
+    updated = torch.randn_like(model.language_model.proj.weight)
+    assert model.load_weights([("language_model.proj.weight", updated)]) == {
+        "language_model.proj.weight"
+    }
+    torch.testing.assert_close(model.language_model.proj.weight, updated)
+    assert all(
+        torch.equal(dict(model.named_parameters())[n], p) for n, p in frozen.items()
+    )
+    with pytest.raises(ValueError, match="Frozen"):
+        model.load_weights([weights[0]])
     ids = torch.tensor([1, 2])
     assert torch.equal(model(ids, ids, SimpleNamespace(mm_inputs=None)), ids)
     with pytest.raises(NotImplementedError, match="Externally"):
