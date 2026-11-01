@@ -102,8 +102,9 @@ def test_sglang_lookup_finds_packaged_file(monkeypatch, device_name, expected_64
     )
     with monkeypatch.context() as setup:
         setup.setattr(server_args.ServerArgs, "__post_init__", lambda self: None)
+        setup.setattr(server_args.ServerArgs, "resolve_once", lambda self: None)
         args = server_args.ServerArgs(model_path="unused")
-    runtime.publish(args, role="test")
+        runtime.publish(args, role="test")
     monkeypatch.setattr(config_module, "get_device_name", lambda *_: device_name)
     monkeypatch.setenv(moe_configs.ENVIRONMENT_VARIABLE, str(moe_configs.CONFIG_ROOT))
     config_module.get_moe_configs.cache_clear()

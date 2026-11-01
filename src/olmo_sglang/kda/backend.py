@@ -29,7 +29,6 @@ from sglang.srt.layers.attention.linear.kernels.kernel_backend import (
 )
 
 from olmo_sglang import core_compat
-from olmo_sglang.kda import state_snapshot
 from olmo_sglang.vision.config import VISION_ARCHITECTURE, text_config
 
 EXPECTED_FLA_VERSION = "0.5.2"
@@ -418,7 +417,9 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
             )
         tracked = track_state is not None
         if tracked:
-            chunk_kda = state_snapshot.chunk_kda
+            chunk_kda = importlib.import_module(
+                "olmo_sglang.kda.state_snapshot"
+            ).chunk_kda
         initial_state, valid = self._gather_initial_state(ssm_states, cache_indices)
         core_layout = getattr(self, "core_compat", False)
         raw_gate = raw_gate.reshape(q.shape[0], q.shape[1], v.shape[2], q.shape[-1])

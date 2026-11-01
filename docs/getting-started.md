@@ -19,7 +19,7 @@ Check out the pinned SGLang revision alongside this repository:
 
 ```bash
 git clone https://github.com/sgl-project/sglang.git
-git -C sglang checkout 3145136dcd1238754e0ea2b2ffd546532119c71c
+git -C sglang checkout b84bec5761a6cdc8b1df86b9b89ead80a7a9bb02
 git clone https://github.com/allenai/olmo-sglang.git
 cd olmo-sglang
 uv venv --python 3.12

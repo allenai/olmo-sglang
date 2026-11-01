@@ -2,6 +2,7 @@ from array import array
 from types import SimpleNamespace
 
 import torch
+from sglang.srt import runtime_context, server_args
 from sglang.srt.managers.schedule_batch import Req
 from sglang.srt.mem_cache.allocator import TokenToKVPoolAllocator
 from sglang.srt.mem_cache.base_prefix_cache import (
@@ -10,9 +11,11 @@ from sglang.srt.mem_cache.base_prefix_cache import (
     MatchPrefixParams,
 )
 from sglang.srt.mem_cache.cache_init_params import CacheInitParams
-from sglang.srt.mem_cache.mamba_radix_cache import MambaRadixCache
 from sglang.srt.mem_cache.memory_pool import HybridLinearKVPool, HybridReqToTokenPool
 from sglang.srt.mem_cache.radix_cache import RadixKey
+from sglang.srt.mem_cache.unified_cache.components import ComponentType
+from sglang.srt.mem_cache.unified_cache.components import mamba as mamba_component
+from sglang.srt.mem_cache.unified_radix_cache import UnifiedRadixCache
 from sglang.srt.sampling.sampling_params import SamplingParams
 
 from olmo_sglang.kda import backend as kda_backend
@@ -46,9 +49,18 @@ def _request(rid: str) -> Req:
 
 
 def _make_cache(monkeypatch):
-    import sglang.srt.mem_cache.mamba_radix_cache as radix_module
-
-    monkeypatch.setattr(radix_module, "mamba_cache_chunk_size", lambda: 64)
+    monkeypatch.setattr(
+        runtime_context,
+        "_CONTEXT",
+        runtime_context.RuntimeContext(parallel=runtime_context.ParallelContext()),
+    )
+    with monkeypatch.context() as setup:
+        setup.setattr(server_args.ServerArgs, "__post_init__", lambda self: None)
+        setup.setattr(server_args.ServerArgs, "resolve_once", lambda self: None)
+        args = server_args.ServerArgs(model_path="unused", device="cpu")
+        runtime_context.publish(args, role="test")
+    monkeypatch.setattr(mamba_component, "mamba_cache_chunk_size", lambda: 64)
+    monkeypatch.setattr(mamba_component, "mamba_checkpoint_grid", lambda _: 64)
     cache_params = OlmoKDACacheParams(
         shape=OlmoKDAStateShape.from_config(_config()),
         layers=[0, 2],
@@ -83,12 +95,13 @@ def _make_cache(monkeypatch):
         kvcache=kv_pool,
         need_sort=False,
     )
-    tree = MambaRadixCache(
+    tree = UnifiedRadixCache(
         CacheInitParams(
             req_to_token_pool=req_pool,
             token_to_kv_pool_allocator=allocator,
             page_size=1,
             disable=False,
+            tree_components=[ComponentType.FULL, ComponentType.MAMBA],
         )
     )
     return tree, allocator, req_pool
@@ -97,8 +110,8 @@ def _make_cache(monkeypatch):
 def _allocate_request(req_pool: HybridReqToTokenPool, rid: str) -> Req:
     req = _request(rid)
     assert req_pool.alloc([req]) is not None
-    req_pool.mamba_pool.clear_slots(req.mamba_pool_idx.unsqueeze(0))
-    req.mamba_needs_clear = False
+    req_pool.mamba_pool.clear_slots(req.kv.mamba_pool_idx.unsqueeze(0))
+    req.kv.mamba_needs_clear = False
     return req
 
 
@@ -136,7 +149,8 @@ def test_registration_enables_extra_buffer_mamba_radix_cache(monkeypatch):
     assert captured[0].support_mamba_cache_extra_buffer is True
     assert "Olmo3MoeForCausalLM" in overrides._MAMBA_EXTRA_BUFFER_ARCHS
     assert overrides.supports_mamba_cache_extra_buffer(
-        SimpleNamespace(linear_attn_backend="triton"), "Olmo3MoeForCausalLM"
+        SimpleNamespace(linear_attn_backend="triton"),
+        SimpleNamespace(architectures=["Olmo3MoeForCausalLM"]),
     )
 
 
@@ -144,7 +158,7 @@ def test_radix_prefix_copy_branches_and_evicts_complete_olmo_kda_state(monkeypat
     tree, allocator, req_pool = _make_cache(monkeypatch)
     state_pool = req_pool.mamba_pool.mamba_cache
     prefix_req = _allocate_request(req_pool, "prefix")
-    prefix_index = prefix_req.mamba_pool_idx
+    prefix_index = prefix_req.kv.mamba_pool_idx
 
     for offset, conv in enumerate(state_pool.conv, start=1):
         values = torch.arange(conv[:, prefix_index].numel(), dtype=conv.dtype)
@@ -175,16 +189,16 @@ def test_radix_prefix_copy_branches_and_evicts_complete_olmo_kda_state(monkeypat
         )
     )
     assert len(match_a.device_indices) == len(token_ids)
-    assert branch_a.mamba_cow_src_index is not None
+    assert branch_a.kv.mamba_cow_src_index is not None
     req_pool.mamba_pool.copy_from(
-        branch_a.mamba_cow_src_index,
-        branch_a.mamba_pool_idx.unsqueeze(0),
+        branch_a.kv.mamba_cow_src_index,
+        branch_a.kv.mamba_pool_idx.unsqueeze(0),
     )
-    _assert_state_equal(req_pool, branch_a.mamba_pool_idx, prefix_state)
+    _assert_state_equal(req_pool, branch_a.kv.mamba_pool_idx, prefix_state)
 
     for conv in state_pool.conv:
-        conv[:, branch_a.mamba_pool_idx] += 100
-    state_pool.temporal[:, branch_a.mamba_pool_idx] += 100
+        conv[:, branch_a.kv.mamba_pool_idx] += 100
+    state_pool.temporal[:, branch_a.kv.mamba_pool_idx] += 100
     _assert_state_equal(req_pool, prefix_index, prefix_state)
 
     branch_b = _allocate_request(req_pool, "branch-b")
@@ -197,10 +211,10 @@ def test_radix_prefix_copy_branches_and_evicts_complete_olmo_kda_state(monkeypat
     )
     assert len(match_b.device_indices) == len(token_ids)
     req_pool.mamba_pool.copy_from(
-        branch_b.mamba_cow_src_index,
-        branch_b.mamba_pool_idx.unsqueeze(0),
+        branch_b.kv.mamba_cow_src_index,
+        branch_b.kv.mamba_pool_idx.unsqueeze(0),
     )
-    _assert_state_equal(req_pool, branch_b.mamba_pool_idx, prefix_state)
+    _assert_state_equal(req_pool, branch_b.kv.mamba_pool_idx, prefix_state)
 
     available_before_evict = req_pool.mamba_allocator.available_size()
     result = tree.evict(EvictParams(mamba_num=1))
@@ -211,14 +225,15 @@ def test_radix_prefix_copy_branches_and_evicts_complete_olmo_kda_state(monkeypat
     )
     assert len(miss.device_indices) == 0
 
-    cancelled_index = branch_a.mamba_pool_idx.clone()
+    cancelled_index = branch_a.kv.mamba_pool_idx.clone()
     req_pool.free_mamba_cache(branch_a)
     replacement = _allocate_request(req_pool, "replacement")
-    if torch.equal(replacement.mamba_pool_idx, cancelled_index):
+    if torch.equal(replacement.kv.mamba_pool_idx, cancelled_index):
         for conv in state_pool.conv:
-            assert torch.count_nonzero(conv[:, replacement.mamba_pool_idx]) == 0
+            assert torch.count_nonzero(conv[:, replacement.kv.mamba_pool_idx]) == 0
         assert (
-            torch.count_nonzero(state_pool.temporal[:, replacement.mamba_pool_idx]) == 0
+            torch.count_nonzero(state_pool.temporal[:, replacement.kv.mamba_pool_idx])
+            == 0
         )
 
     tree.sanity_check()

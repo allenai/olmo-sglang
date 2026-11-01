@@ -76,6 +76,9 @@ def install_sglang_moe_activation_fallback() -> None:
     if getattr(fused_moe, "_olmo_unaligned_silu_fallback_installed", False):
         return
 
+    # CPU-only SGLang imports do not expose the CUDA/HIP activation entrypoint.
+    if not hasattr(fused_moe, "silu_and_mul"):
+        return
     original: Callable[..., torch.Tensor] = fused_moe.silu_and_mul
 
     def compatible_silu_and_mul(
