@@ -51,6 +51,11 @@ def test_sparse_mlp_preserves_input_across_fused_experts(monkeypatch, shared):
     monkeypatch.setattr(olmo3_moe, "FusedMoE", Experts)
     monkeypatch.setattr(olmo3_moe, "Olmo3MoeDenseMLP", Shared)
     monkeypatch.setattr(olmo3_moe, "_log_ep_parallelism", lambda **kwargs: (0, 2))
+    monkeypatch.setattr(
+        olmo3_moe,
+        "get_parallel",
+        lambda: SimpleNamespace(tp_size=1, moe_ep_size=2, moe_tp_size=1),
+    )
     config = SimpleNamespace(
         hidden_size=2,
         n_routed_experts=2,

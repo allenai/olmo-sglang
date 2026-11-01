@@ -39,3 +39,10 @@ texts are included in both source and wheel distributions.
 separately installed FLA 0.5.2 under Triton 3.6 or newer. It replaces a constexpr
 expression in the installed kernel's in-memory JIT source and wraps its launcher;
 it does not bundle the FLA package or write a modified copy to disk.
+
+`src/olmo_sglang/kda/state_snapshot_kernel.py` adapts the forward recurrence
+and launcher from FLA 0.5.2's `fla/ops/common/chunk_delta_h.py`, retaining its
+original copyright notice and MIT license. It adds selected FP32 recurrent-state
+writes while retaining the BF16 history and output path. The small inference
+composition in `state_snapshot.py` follows FLA's `ops/kda/chunk_fwd.py` forward
+order using the separately installed gate, intra-chunk and output kernels.

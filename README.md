@@ -11,7 +11,7 @@ checkout. It can be used directly for inference or as a rollout runtime in
 training applications.
 
 Install the extension into the [tested SGLang runtime](docs/compatibility.md).
-The pinned source revision is `3145136dcd1238754e0ea2b2ffd546532119c71c`.
+The pinned source revision is `b84bec5761a6cdc8b1df86b9b89ead80a7a9bb02`.
 See [validation status](docs/status.md) for measured coverage and known numerical
 limits, including measured full-checkpoint probability differences across
 execution paths.
@@ -39,7 +39,7 @@ Install this package alongside the pinned SGLang checkout:
 
 ```bash
 git clone https://github.com/sgl-project/sglang.git
-git -C sglang checkout 3145136dcd1238754e0ea2b2ffd546532119c71c
+git -C sglang checkout b84bec5761a6cdc8b1df86b9b89ead80a7a9bb02
 git clone https://github.com/allenai/olmo-sglang.git
 cd olmo-sglang
 uv venv --python 3.12

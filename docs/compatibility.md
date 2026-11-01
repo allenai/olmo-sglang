@@ -11,21 +11,26 @@ The pinned runtime uses the SGLang source revision recorded in `pyproject.toml`:
 
 | Component | Tested version or revision |
 |---|---|
-| SGLang | `0.5.19.dev49+g3145136` / `3145136dcd1238754e0ea2b2ffd546532119c71c` |
+| SGLang | `0.0.0.dev1+gb84bec576` / `b84bec5761a6cdc8b1df86b9b89ead80a7a9bb02` |
 | flash-linear-attention | `0.5.2` |
 | PyTorch | `2.13.0+cu130` |
 | Transformers | `5.12.1` |
 | Triton | `3.7.1` |
 | Python | `3.12` |
 
-The source revision adds a bounded HTTP-readiness wait before optional GC
-freezing to the audited `sglang-miles` base
-`3bbb2812e2ca1defdee76f6ec09dbb2456c21c69`. It does not change model kernels.
+This updates the integration baseline from `3145136` to the exact SGLang
+revision used by open-instruct's MILES runtime. The newer backend allocates FP32
+tracked-state buffers, passes them into the KDA kernel, and commits them to
+prefix-cache slots. The Olmo adapter implements that contract; the old revision
+does not call it. Installing this package alone does not upgrade SGLang.
 
-This table is a known-good integration point, not a claim that adjacent SGLang
-commits are incompatible. Run the validation suite whenever changing the
-runtime because model registry, fused-MoE, linear-attention cache, and scheduler
-interfaces are not stable extension APIs.
+Historical measurements elsewhere in these docs retain their original runtime
+identities. They are not requalified by this metadata change. In particular,
+vision, speculative serving and tensor-parallel full-model validations retain
+their stated older-runtime scope until repeated on this revision.
+
+Run the validation suite whenever changing the runtime because model registry,
+fused-MoE, linear-attention cache and scheduler interfaces are not stable APIs.
 
 ## Checkpoint contract
 

@@ -79,6 +79,22 @@ def test_prepare_olmo_config_uses_worker_attention_tp_size():
     assert config.mamba2_cache_params.shape.temporal == (2, 16, 8)
 
 
+def test_prepare_olmo_config_does_not_hide_published_parallel_errors(monkeypatch):
+    class BrokenParallel:
+        @property
+        def attn_tp_size(self):
+            raise RuntimeError("invalid published width")
+
+    monkeypatch.setattr(kda_backend.runtime_context, "get_parallel", BrokenParallel)
+    monkeypatch.setattr(
+        kda_backend.runtime_context,
+        "get_context",
+        lambda: SimpleNamespace(is_config_namespace_published=lambda name: True),
+    )
+    with pytest.raises(RuntimeError, match="invalid published width"):
+        _prepare_olmo_config(_config())
+
+
 def test_prepare_olmo_config_ignores_attention_only_model():
     config = _config()
     config.layer_types = ["full_attention", "full_attention"]
