@@ -39,4 +39,10 @@ Speculation and prefix caching can coexist. **NGRAM is the simplest follow-up**:
 
 CPU tests against the unchanged pinned source exercise real KV/KDA pools: same-policy hits, cross-policy misses, retained chunk continuation, completion/cancellation cleanup, registration, and eight cold siblings through the built-in scheduler. Pure namespace tests cover salts, retraction and invalid/regressing versions.
 
-A GPU serving/publication probe is still required before treating this as a qualified runtime: compare fixed-weight outputs with cache off/on; update weights with waiting and active requests; check fresh requests against a cold new-policy engine; verify recurrent-state memory stability over repeated updates; then measure prefill work and sustained throughput. No speedup is claimed from CPU tests.
+A two-B300 DocQA integration probe completed four optimizer updates with exit code 0. The factory initialized successfully, and one observed prefix hit reused 12,416 tokens with only 15 new prefill tokens. Versions 0–4 were published with retained state; 32 logged responses crossed policy boundaries. The final rollout counters reported no failed or requeued groups.
+
+All four consumed training batches were generated under version 0 while the first update compiled. Cross-version responses completed in serving but were not consumed by those updates. Remaining qualification includes fixed-weight cache-off/on output parity, fresh requests against a cold new-policy engine, training consumption of retained responses, repeated-update memory stability and representative throughput. No measured speedup or long-run learning equivalence is claimed.
+
+Runs:
+
+1. Successful four-update probe: [Beaker](https://beaker.org/ex/01M6Y5Q3BWZQVRVN1CG0M7NNHM), immutable result dataset `01M6Y5Q3C5VM98YMG402TE8WSY`. Image `01M6Y5NN3FMQGCVV2WX92AMJS6` used plugin `f0444a8`, MILES `0c2b405`, application `a2feaaef3` and Core `903e57d`. Plugin changes after that tested revision only document results.
