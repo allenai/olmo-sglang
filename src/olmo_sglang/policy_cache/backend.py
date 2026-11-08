@@ -69,33 +69,111 @@ class PolicyRadixCache(UnifiedRadixCache):
             component.cleanup_after_caching_req(req, is_finished=True)
 
 
-def create(context):
+def _validate_configuration(context):
     memory, parallel = get_memory(), get_parallel()
-    unsupported = (
-        context.disable_radix_cache
-        or context.enable_hierarchical_cache
-        or context.is_hybrid_swa
-        or context.is_dsa
-        or context.model_config.is_encoder_decoder
-        or not context.model_config.is_generation
-        or parallel.tp_size != 1
-        or parallel.pp_size != 1
-        or parallel.dp_size != 1
-        or parallel.dcp_size != 1
-        or get_serving().enable_streaming_session
-        or get_disagg().disaggregation_mode != "null"
-        or get_disagg().disaggregation_decode_retraction_backup not in (None, "none")
-        or get_spec().speculative_algorithm is not None
-        or get_lora().enable_lora
-        or memory.enable_unified_memory
-        or memory.enable_session_radix_cache
-        or memory.enable_unified_cache_external_linker
-        or memory.enable_lmcache
-        or memory.enable_flexkv
-        or memory.enable_hisparse
+    disagg, serving = get_disagg(), get_serving()
+    errors = []
+
+    def require(field, value, condition, reason):
+        if not condition:
+            errors.append(f"{field}={value!r}: {reason}")
+
+    require(
+        "disable_radix_cache",
+        context.disable_radix_cache,
+        not context.disable_radix_cache,
+        "prefix sharing must be enabled",
     )
-    if unsupported:
-        raise ValueError(
-            "Policy caching requires device-only TP1 full-attention/Mamba generation without sessions, offload, speculation or adapters"
+    for field, value in (
+        ("is_hybrid_swa", context.is_hybrid_swa),
+        ("is_dsa", context.is_dsa),
+        ("model_config.is_encoder_decoder", context.model_config.is_encoder_decoder),
+    ):
+        require(
+            field,
+            value,
+            not value,
+            "retained-state handling is validated only for full-attention/Mamba generation",
         )
+    require(
+        "model_config.is_generation",
+        context.model_config.is_generation,
+        context.model_config.is_generation,
+        "this backend requires generative requests",
+    )
+    for field in ("tp_size", "pp_size", "dp_size", "dcp_size"):
+        value = getattr(parallel, field)
+        require(
+            field,
+            value,
+            value == 1,
+            "multi-rank cache ownership and policy publication are not yet validated",
+        )
+    for field, value in (
+        ("enable_streaming_session", serving.enable_streaming_session),
+        ("enable_session_radix_cache", memory.enable_session_radix_cache),
+    ):
+        require(
+            field,
+            value,
+            not value,
+            "cross-turn session state is not covered by request-scoped policy bindings",
+        )
+    require(
+        "disaggregation_mode",
+        disagg.disaggregation_mode,
+        disagg.disaggregation_mode == "null",
+        "cross-engine KV transfer does not yet carry this backend's policy binding",
+    )
+    # The pinned builder resolves None to cpu_tensor even for mode='null'.
+    # That inactive decode-side setting does not enable cache offload. A real
+    # host_pool, however, allocates host cache state in the builder.
+    backup = disagg.disaggregation_decode_retraction_backup
+    require(
+        "disaggregation_decode_retraction_backup",
+        backup,
+        backup in (None, "none", "cpu_tensor"),
+        "host-backed retraction is outside the validated device-only cache path",
+    )
+    algorithm = get_spec().speculative_algorithm
+    require(
+        "speculative_algorithm",
+        algorithm,
+        algorithm is None,
+        "speculative accept/rollback and draft-state ownership across weight updates "
+        "are not yet validated; this is not a general prefix-cache incompatibility",
+    )
+    require(
+        "enable_lora",
+        get_lora().enable_lora,
+        not get_lora().enable_lora,
+        "adapter identity and updates are not part of this backend's policy binding",
+    )
+    for field, value in (
+        ("enable_hierarchical_cache", context.enable_hierarchical_cache),
+        *(
+            (field, getattr(memory, field))
+            for field in (
+                "enable_unified_memory",
+                "enable_unified_cache_external_linker",
+                "enable_lmcache",
+                "enable_flexkv",
+                "enable_hisparse",
+            )
+        ),
+    ):
+        require(
+            field,
+            value,
+            not value,
+            "host/external cache ownership and transfer are not yet policy-scoped",
+        )
+    if errors:
+        raise ValueError(
+            "Policy cache configuration rejected:\n  - " + "\n  - ".join(errors)
+        )
+
+
+def create(context):
+    _validate_configuration(context)
     return registry.create_unified_radix_cache(context, cache_class=PolicyRadixCache)

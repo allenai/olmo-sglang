@@ -7,7 +7,7 @@ import pytest
 import torch
 from sglang.srt import runtime_context
 from sglang.srt.managers.schedule_policy import CacheAwarePolicy, SchedulePolicy
-from sglang.srt.mem_cache import registry
+from sglang.srt.mem_cache import kv_cache_builder, registry
 from sglang.srt.mem_cache.base_prefix_cache import InsertParams
 from sglang.srt.mem_cache.common import release_kv_cache
 from sglang.srt.mem_cache.radix_cache import RadixKey
@@ -126,3 +126,97 @@ def test_factory_and_builtin_cold_sibling_scheduling(monkeypatch):
         req.origin_input_ids = array("q", range(64))
     deprioritized = policy._compute_prefix_matches(siblings, CacheAwarePolicy.LPM)
     assert deprioritized == {str(i) for i in range(1, 8)}
+
+
+def test_factory_accepts_resolved_non_disaggregated_retraction_default(monkeypatch):
+    """Exercise the runtime resolution skipped by the original factory test."""
+
+    def factory(params):
+        runtime_context.get_parallel().override_permanently(
+            tp_size=1, pp_size=1, dp_size=1, dcp_size=1
+        )
+        worker = SimpleNamespace(
+            is_hybrid_swa=False,
+            get_memory_pool=lambda: (
+                params.req_to_token_pool,
+                params.token_to_kv_pool_allocator,
+            ),
+            model_runner=SimpleNamespace(mtp_draft_device_pools=[]),
+        )
+        # The real pool is hybrid; the model classification is orthogonal to
+        # resolving a non-disaggregated server's default.
+        monkeypatch.setattr(kv_cache_builder, "uses_ssm_state", lambda _: True)
+        worker.model_runner.model_config = SimpleNamespace()
+        assert (
+            kv_cache_builder.resolve_decode_retraction_backup(tp_worker=worker)
+            == "cpu_tensor"
+        )
+        assert runtime_context.get_disagg().disaggregation_mode == "null"
+        return create(
+            SimpleNamespace(
+                params=params,
+                server_args=None,
+                disable_radix_cache=False,
+                enable_hierarchical_cache=False,
+                is_hybrid_swa=False,
+                is_hybrid_ssm=True,
+                is_dsa=False,
+                model_config=SimpleNamespace(
+                    is_encoder_decoder=False, is_generation=True
+                ),
+            )
+        )
+
+    tree, _, _ = _make_cache(monkeypatch, factory)
+    assert isinstance(tree, PolicyRadixCache)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"speculative_algorithm": "NGRAM"},
+        {"speculative_algorithm": "EAGLE"},
+        {"disaggregation_decode_retraction_backup": "host_pool"},
+        {"tp_size": 2, "enable_lora": True},
+        {"enable_hierarchical_cache": True},
+        {"enable_streaming_session": True},
+        {"disaggregation_mode": "decode"},
+    ],
+)
+def test_rejected_configuration_names_all_fields_values_and_reasons(
+    monkeypatch, fields
+):
+    def factory(params):
+        runtime_context.get_context().override(
+            "test.unsupported", tp_size=1, pp_size=1, dp_size=1, dcp_size=1
+        )
+        runtime_context.get_context().override("test.unsupported", **fields)
+        runtime_context.get_parallel().override_permanently(
+            **{
+                name: fields.get(name, 1)
+                for name in ("tp_size", "pp_size", "dp_size", "dcp_size")
+            }
+        )
+        return create(
+            SimpleNamespace(
+                params=params,
+                disable_radix_cache=False,
+                enable_hierarchical_cache=fields.get(
+                    "enable_hierarchical_cache", False
+                ),
+                is_hybrid_swa=False,
+                is_dsa=False,
+                model_config=SimpleNamespace(
+                    is_encoder_decoder=False, is_generation=True
+                ),
+            )
+        )
+
+    with pytest.raises(
+        ValueError, match="Policy cache configuration rejected"
+    ) as error:
+        _make_cache(monkeypatch, factory)
+    for field, value in fields.items():
+        assert f"{field}={value!r}: " in str(error.value)
+    if "speculative_algorithm" in fields:
+        assert "not a general prefix-cache incompatibility" in str(error.value)
