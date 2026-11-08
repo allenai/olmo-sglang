@@ -12,6 +12,7 @@ _RUNTIME_TEST_MODULES = {
     "test_kda_state_snapshot.py",
     "test_kda_snapshot_serving.py",
     "test_kda_radix_cache.py",
+    "test_policy_cache_backend.py",
     "test_kda_tp.py",
     "test_speculative_kda.py",
 }

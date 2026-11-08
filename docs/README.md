@@ -17,3 +17,5 @@ This directory holds the detailed operating and implementation contract for
 Operational instructions describe the current code. Measurements and completed
 probes in the status and validation documents are evidence, not performance
 guarantees for a different checkpoint or runtime.
+
+Experimental RL serving: [Policy-scoped prefix caching](policy-prefix-cache.md).
