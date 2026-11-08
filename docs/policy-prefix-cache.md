@@ -41,8 +41,23 @@ CPU tests against the unchanged pinned source exercise real KV/KDA pools: same-p
 
 A two-B300 DocQA integration probe completed four optimizer updates with exit code 0. The factory initialized successfully, and one observed prefix hit reused 12,416 tokens with only 15 new prefill tokens. Versions 0–4 were published with retained state; 32 logged responses crossed policy boundaries. The final rollout counters reported no failed or requeued groups.
 
-All four consumed training batches were generated under version 0 while the first update compiled. Cross-version responses completed in serving but were not consumed by those updates. Remaining qualification includes fixed-weight cache-off/on output parity, fresh requests against a cold new-policy engine, training consumption of retained responses, repeated-update memory stability and representative throughput. No measured speedup or long-run learning equivalence is claimed.
+All four consumed training batches were generated under version 0 while the first update compiled. Cross-version responses completed in serving but were not consumed by those updates.
+
+Subsequent local RTX 4090 tests used a deterministic tiny full-attention/KDA model with the unchanged pinned runtime:
+
+| Check | Result |
+|---|---|
+| Six publications, first unchanged then five changed-weight updates | With both torch-native and Triton attention, fresh requests missed old-policy prefixes and exactly matched the corresponding cache-off control's tokens and logprobs at every version. |
+| Identical-weight publication during a live response | Exact agreement against a control using the same cache boundary. |
+| Repeated/streamed requests versus ordinary SGLang caching | Exact agreement in the isolated native-cache comparison. |
+| Concurrent old/new requests with a constrained 32-slot recurrent pool | 48 live responses crossed 12 publications. Each new-policy request had zero stale-cache hits; every warm repeat reused 768 tokens; no retractions occurred. |
+
+A deeper cache hit (960 versus 768 prompt tokens) changed the tiny model's continuation even without publication. Ordinary SGLang caching reproduced this exactly; the first 250 generated tokens agreed, with maximum logprob error about 0.004 over that shared history. Publication comparisons therefore use matched cache boundaries, and wrapper comparisons use native caching as the reference. Cache-on/off trajectory differences are reported separately; these checks do not establish identical cached and uncached trajectories in general.
+
+[Immutable local receipts and reproduction scripts](https://beaker.org/ds/01M6YD4TS8PC6SZJKED2TCSDWW) include source hashes and image provenance. The [one-node harness](https://github.com/allenai/open-instruct/tree/13d47a043/scripts/miles/cache_panel) adds real-checkpoint off/on/native/off serving measurements and paired 24-update cache-off/on training. It requires optimizer consumption of cross-version responses and records cache hits, generated tokens, timing phases and occupancy. That panel is submitted, with no performance result yet. Representative throughput, sustained training consumption and long-run memory/learning behavior remain unqualified.
 
 Runs:
 
 1. Successful four-update probe: [Beaker](https://beaker.org/ex/01M6Y5Q3BWZQVRVN1CG0M7NNHM), immutable result dataset `01M6Y5Q3C5VM98YMG402TE8WSY`. Image `01M6Y5NN3FMQGCVV2WX92AMJS6` used plugin `f0444a8`, MILES `0c2b405`, application `a2feaaef3` and Core `903e57d`. Plugin changes after that tested revision only document results.
+
+2. One-node comparison, submitted pending capacity: [Beaker](https://beaker.org/ex/01M6YCQWJC7Q3ESTATPQZRFKGY). Image `01M6YCM32SZRRMNNYX6WG1HDGV` uses application `13d47a043`, MILES `8802440`, plugin `f0444a8`, Core `903e57d` and unchanged SGLang `b84bec5`.
