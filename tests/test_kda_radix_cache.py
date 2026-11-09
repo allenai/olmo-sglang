@@ -48,7 +48,7 @@ def _request(rid: str) -> Req:
     )
 
 
-def _make_cache(monkeypatch):
+def _make_cache(monkeypatch, cache_class=UnifiedRadixCache):
     monkeypatch.setattr(
         runtime_context,
         "_CONTEXT",
@@ -95,7 +95,7 @@ def _make_cache(monkeypatch):
         kvcache=kv_pool,
         need_sort=False,
     )
-    tree = UnifiedRadixCache(
+    tree = cache_class(
         CacheInitParams(
             req_to_token_pool=req_pool,
             token_to_kv_pool_allocator=allocator,
