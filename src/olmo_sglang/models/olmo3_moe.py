@@ -864,6 +864,7 @@ class Olmo3MoeForCausalLM(nn.Module):
         and a per-expert scan over ``3 * n_routed_experts`` patterns costs about
         a second per publication at 512 experts.
         """
+        params = dict(self.named_parameters())
         resolver = self._weight_targets
         if resolver is None:
             fused_layers = {
@@ -873,11 +874,11 @@ class Olmo3MoeForCausalLM(nn.Module):
                 for attribute in ("w13_weight", "w2_weight")
             }
             resolver = self._weight_targets = WeightTargets(
-                dict(self.named_parameters()),
+                params,
                 self.config.n_routed_experts,
                 fused_layers=fused_layers,
             )
-        resolver.bind_parameters(dict(self.named_parameters()))
+        resolver.bind_parameter_names(params)
         loaded_params: set[str] = set()
         for name, loaded_weight, *rest in weights:
             loader_kwargs = rest[0] if rest else {}
@@ -885,7 +886,7 @@ class Olmo3MoeForCausalLM(nn.Module):
             if target is None:
                 continue
             kind, mapped_name, shard_id, expert_id = target
-            param = resolver.params[mapped_name]
+            param = params[mapped_name]
             if kind == "stacked":
                 param.weight_loader(param, loaded_weight, shard_id)
             elif kind == "expert":
