@@ -3,6 +3,7 @@
 """Portable checkpoint-name resolution for native packed decoder parameters."""
 
 import re
+from collections.abc import Iterable
 from typing import Any
 
 import torch
@@ -40,10 +41,17 @@ class WeightTargets:
         num_experts: int,
         fused_layers: dict[str, Any] | None = None,
     ):
-        self.params = params
+        self.param_names = frozenset(params)
         self.num_experts = num_experts
         self.fused_layers = fused_layers or {}
         self._cache: dict[str, tuple[str, str, Any, int | None] | None] = {}
+
+    def bind_parameter_names(self, names: Iterable[str]) -> None:
+        """Reconcile topology without retaining quantizer staging Parameters."""
+        names = frozenset(names)
+        if names != self.param_names:
+            self._cache.clear()
+        self.param_names = names
 
     def resolve(self, name: str) -> tuple[str, str, Any, int | None] | None:
         try:
@@ -61,22 +69,22 @@ class WeightTargets:
                 if weight_name not in name:
                     continue
                 mapped_name = name.replace(weight_name, param_name)
-                if mapped_name in self.params:
+                if mapped_name in self.param_names:
                     return ("stacked", mapped_name, shard_id, None)
         fused = _FUSED_EXPERT_WEIGHT.search(name)
         if fused is not None:
             prefix, shard_id = _FUSED_TARGETS[fused.group(1)]
             mapped_name = name.replace(f"experts.{fused.group(1)}.", prefix)
-            if mapped_name in self.fused_layers and mapped_name in self.params:
+            if mapped_name in self.fused_layers and mapped_name in self.param_names:
                 return ("fused", mapped_name, shard_id, None)
         match = _EXPERT_WEIGHT.search(name)
         if match is not None and int(match.group(1)) < self.num_experts:
             expert_id, projection = int(match.group(1)), match.group(2)
             prefix = "experts.w2_" if projection == "down_proj" else "experts.w13_"
             mapped_name = name.replace(f"experts.{expert_id}.{projection}.", prefix)
-            if mapped_name in self.params:
+            if mapped_name in self.param_names:
                 return ("expert", mapped_name, _EXPERT_SHARDS[projection], expert_id)
-        if name in self.params:
+        if name in self.param_names:
             return ("direct", name, None, None)
         if name.endswith(".bias"):
             return None

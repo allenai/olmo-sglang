@@ -1,6 +1,10 @@
 """Constant-time checkpoint-name resolution matches the scanning loader it replaced."""
 
+import gc
+import weakref
+
 import pytest
+import torch
 
 from olmo_sglang.weight_loading import STACKED_PARAMS_MAPPING, WeightTargets
 
@@ -193,3 +197,43 @@ def test_stacked_expert_names_resolve_to_the_fused_loader_only_when_registered()
     # A stacked name is unknown when no fused layer owns the parameter.
     with pytest.raises(KeyError):
         WeightTargets(params, 8).resolve("model.layers.0.mlp.experts.down_proj.weight")
+
+
+def test_rebind_preserves_name_cache_without_retaining_parameters():
+    params = _synthetic_params(1, set())
+    targets = WeightTargets(params, 8)
+    name = "model.layers.0.mlp.experts.7.gate_proj.weight"
+    resolved = targets.resolve(name)
+    replacement = torch.nn.Parameter(torch.ones(1))
+    reference = weakref.ref(replacement)
+    updated = dict(params)
+    updated[resolved[1]] = replacement
+    targets.bind_parameter_names(updated)
+    assert targets.resolve(name) is resolved
+    del updated, replacement
+    gc.collect()
+    assert reference() is None
+
+
+def test_rebind_invalidates_skipped_bias_when_inventory_changes():
+    params = _synthetic_params(1, set())
+    targets = WeightTargets(params, 8)
+    name = "model.layers.0.mlp.shared_experts.down_proj.bias"
+    assert targets.resolve(name) is None
+    targets.bind_parameter_names({**params, name: object()})
+    assert targets.resolve(name) == ("direct", name, None, None)
+
+
+def test_initial_resolution_does_not_retain_bf16_parameters():
+    parameter = torch.nn.Parameter(torch.ones(2, 3, dtype=torch.bfloat16))
+    reference = weakref.ref(parameter)
+    targets = WeightTargets({"model.norm.weight": parameter}, 1)
+    del parameter
+    gc.collect()
+    assert reference() is None
+    assert targets.resolve("model.norm.weight") == (
+        "direct",
+        "model.norm.weight",
+        None,
+        None,
+    )
