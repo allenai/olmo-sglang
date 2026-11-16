@@ -193,3 +193,25 @@ def test_stacked_expert_names_resolve_to_the_fused_loader_only_when_registered()
     # A stacked name is unknown when no fused layer owns the parameter.
     with pytest.raises(KeyError):
         WeightTargets(params, 8).resolve("model.layers.0.mlp.experts.down_proj.weight")
+
+
+def test_rebind_preserves_name_cache_but_replaces_parameter_references():
+    params = _synthetic_params(1, set())
+    targets = WeightTargets(params, 8)
+    name = "model.layers.0.mlp.experts.7.gate_proj.weight"
+    resolved = targets.resolve(name)
+    replacement = object()
+    updated = dict(params)
+    updated[resolved[1]] = replacement
+    targets.bind_parameters(updated)
+    assert targets.resolve(name) is resolved
+    assert targets.params[resolved[1]] is replacement
+
+
+def test_rebind_invalidates_skipped_bias_when_inventory_changes():
+    params = _synthetic_params(1, set())
+    targets = WeightTargets(params, 8)
+    name = "model.layers.0.mlp.shared_experts.down_proj.bias"
+    assert targets.resolve(name) is None
+    targets.bind_parameters({**params, name: object()})
+    assert targets.resolve(name) == ("direct", name, None, None)

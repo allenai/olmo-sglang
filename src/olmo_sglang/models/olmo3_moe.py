@@ -877,6 +877,7 @@ class Olmo3MoeForCausalLM(nn.Module):
                 self.config.n_routed_experts,
                 fused_layers=fused_layers,
             )
+        resolver.bind_parameters(dict(self.named_parameters()))
         loaded_params: set[str] = set()
         for name, loaded_weight, *rest in weights:
             loader_kwargs = rest[0] if rest else {}

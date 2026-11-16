@@ -45,6 +45,16 @@ class WeightTargets:
         self.fused_layers = fused_layers or {}
         self._cache: dict[str, tuple[str, str, Any, int | None] | None] = {}
 
+    def bind_parameters(self, params: dict[str, torch.nn.Parameter]) -> None:
+        """Refresh tensor references after a quantizer changes loading storage.
+
+        Name mappings survive ordinary refreshes. A changed parameter inventory
+        invalidates mappings, including previously skipped optional biases.
+        """
+        if params.keys() != self.params.keys():
+            self._cache.clear()
+        self.params = params
+
     def resolve(self, name: str) -> tuple[str, str, Any, int | None] | None:
         try:
             return self._cache[name]
