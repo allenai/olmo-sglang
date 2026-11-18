@@ -10,7 +10,6 @@ from olmo_sglang import core_compat
 
 
 def test_tp_down_projection_reduces_fp32_before_bf16_rounding():
-    rounding = import_module("olmo_sglang.rounding")
     partial = torch.tensor([[[1.004, -1.004], [0.004, 0.004]]])
     other = torch.tensor([[[-1.0, 1.0], [1.0, 1.0]]])
     observed = []
@@ -19,15 +18,15 @@ def test_tp_down_projection_reduces_fp32_before_bf16_rounding():
         observed.append((value.dtype, value.clone()))
         return value + other
 
-    actual = rounding.reduce_expert_outputs(partial, reduce)
+    actual = core_compat.reduce_expert_outputs(partial, reduce)
     assert observed[0][0] == torch.float32
     torch.testing.assert_close(observed[0][1], partial, rtol=0, atol=0)
     torch.testing.assert_close(actual, (partial + other).bfloat16(), rtol=0, atol=0)
     premature = (partial.bfloat16().float() + other.bfloat16().float()).bfloat16()
     assert not torch.equal(actual, premature)
-    assert rounding.reduce_expert_outputs(actual, None) is actual
+    assert core_compat.reduce_expert_outputs(actual, None) is actual
     with pytest.raises(ValueError, match="FP32"):
-        rounding.reduce_expert_outputs(actual, reduce)
+        core_compat.reduce_expert_outputs(actual, reduce)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
