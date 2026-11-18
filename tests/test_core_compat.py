@@ -104,8 +104,19 @@ def test_rounding_mode_keeps_graphs_and_default_attention(monkeypatch):
     )
     core_compat.validate_runtime(config, parallel, args, None)
     parallel.tp_size = 2
+    core_compat.validate_runtime(config, parallel, args, None)
+    parallel.tp_size = 4
     with pytest.raises(ValueError, match="TP1"):
         core_compat.validate_runtime(config, parallel, args, None)
+
+
+@pytest.mark.parametrize("field", ["attn_tp_size", "moe_tp_size"])
+def test_rounding_tp2_rejects_mismatched_parallel_groups(monkeypatch, field):
+    monkeypatch.setenv(core_compat.ENVIRONMENT_VARIABLE, "rounding")
+    parallel = SimpleNamespace(tp_size=2, moe_ep_size=1, attn_tp_size=2, moe_tp_size=2)
+    setattr(parallel, field, 1)
+    with pytest.raises(ValueError, match="matching attention and MoE"):
+        core_compat.validate_runtime(None, parallel, None, None)
 
 
 def test_dense_layout_and_publication_preserve_used_storage():

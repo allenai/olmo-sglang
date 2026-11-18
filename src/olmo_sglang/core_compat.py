@@ -148,11 +148,31 @@ def fused_rounding_enabled(component: str = "moe") -> bool:
     return value == "fused" or value == component
 
 
+def reduce_expert_outputs(outputs, reduce_output):
+    """Complete the down projection before its BF16/route-weight boundary."""
+    if reduce_output is None:
+        return outputs
+    if outputs.dtype != torch.float32:
+        raise ValueError("TP expert reduction requires FP32 partial outputs")
+    return reduce_output(outputs).to(torch.bfloat16)
+
+
 def validate_runtime(config, parallel, args, quant_config, *, dtype=None):
     if mode() == "off":
         return
-    if parallel.tp_size != 1 or parallel.moe_ep_size != 1:
-        raise ValueError("Core compatibility currently requires TP1 and EP1")
+    if parallel.moe_ep_size != 1:
+        raise ValueError("Core compatibility currently requires EP1")
+    if enabled() and parallel.tp_size != 1:
+        raise ValueError("Full Core compatibility currently requires TP1")
+    if rounding_enabled() and parallel.tp_size not in (1, 2):
+        raise ValueError("Rounding compatibility currently supports TP1 or TP2")
+    if rounding_enabled() and any(
+        getattr(parallel, field, parallel.tp_size) != parallel.tp_size
+        for field in ("attn_tp_size", "moe_tp_size")
+    ):
+        raise ValueError(
+            "Rounding compatibility requires matching attention and MoE TP groups"
+        )
     if quant_config is not None or not _is_bf16(args, dtype):
         raise ValueError("Core compatibility currently requires unquantized BF16")
     if enabled() and (

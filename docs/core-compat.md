@@ -101,7 +101,15 @@ SGLang weight layouts, full attention and KDA dispatch, and allows decode graphs
 Dense/shared MLPs already use separate BF16 activation operations. This mode
 does not use Core grouped GEMMs or the full reference's attention/KDA changes.
 
-Use TP1/EP1, unquantized BF16 and the Triton MoE backend. Alternative quantization,
+Use TP1 or TP2 with EP1, unquantized BF16 and the Triton MoE backend. TP2 requires
+explicit `OLMO_SGLANG_CORE_COMPAT=rounding` selection and matching attention and
+MoE TP groups; automatic selection remains TP1. The sharded expert down projection
+reduces FP32 partial results across the TP group before each expert's BF16
+rounding and routing-weight application. This communicates per-expert outputs
+and needs workload-specific throughput tuning. TP2 does not imply bitwise TP1
+or Core parity. The full eager reference still requires TP1.
+
+Alternative quantization,
 interleaved gate/up storage, speculation and the full mode's unsupported model
 geometries are rejected. The implementation calls the pinned SGLang alignment
 and GEMM interfaces directly; it does not install activation hooks or change
