@@ -148,6 +148,15 @@ def fused_rounding_enabled(component: str = "moe") -> bool:
     return value == "fused" or value == component
 
 
+def reduce_expert_outputs(outputs, reduce_output):
+    """Complete the down projection before its BF16/route-weight boundary."""
+    if reduce_output is None:
+        return outputs
+    if outputs.dtype != torch.float32:
+        raise ValueError("TP expert reduction requires FP32 partial outputs")
+    return reduce_output(outputs).to(torch.bfloat16)
+
+
 def validate_runtime(config, parallel, args, quant_config, *, dtype=None):
     if mode() == "off":
         return

@@ -135,19 +135,10 @@ def rounded_experts(
     # partials before rounding each expert's result to BF16, then apply routing
     # weights. Reducing an already weighted/BF16 combined result moves that
     # boundary and introduces an extra rounding of each partial expert output.
-    outputs = reduce_expert_outputs(outputs, reduce_output)
+    outputs = core_compat.reduce_expert_outputs(outputs, reduce_output)
     if fused:
         return rounding_kernels.weighted_sum(outputs, weights)
     return (outputs.float() * weights.float().unsqueeze(-1)).sum(1).to(value.dtype)
-
-
-def reduce_expert_outputs(outputs, reduce_output):
-    """Complete the down projection before its BF16/route-weight boundary."""
-    if reduce_output is None:
-        return outputs
-    if outputs.dtype != torch.float32:
-        raise ValueError("TP expert reduction requires FP32 partial outputs")
-    return reduce_output(outputs).to(torch.bfloat16)
 
 
 class RoundingRMSNorm(core_compat.CoreRMSNorm):
