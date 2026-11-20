@@ -19,15 +19,19 @@ This plugin makes such an abort stick. It is installed through SGLang's
   rid is also recorded in a per-process table with a time to live.
 - **Request registration** (`TokenizerManager._init_req_state`, the first step
   of `generate_request`, before the pause gate, the weight-update lock and
-  tokenization): if the rid has a live entry, the entry is removed and the
-  request gets SGLang's own `abort_before_dispatch` flag. The dispatch path
-  then finishes it as aborted without sending it to the scheduler. The
-  response is the one SGLang returns for any request aborted before dispatch:
-  HTTP 200, `finish_reason = {"type": "abort", "message": "Aborted by AbortReq
-  before dispatch to scheduler"}`, no output tokens.
-- `abort_all`, prefix aborts and empty rids are not recorded.
+  tokenization): if a single request's rid has a live entry, the entry is
+  removed, and SGLang's `_handle_abort_req` finishes the request and
+  unregisters it. The `generate_request` hook then answers it through SGLang's
+  `_stream_one_response`, the path every aborted request takes. The client gets
+  HTTP 200 with `finish_reason = {"type": "abort", "message": "Aborted on
+  arrival: an abort for this rid arrived first"}` and no output tokens, and the
+  scheduler never sees the request.
+- `abort_all`, prefix aborts, empty rids and rids longer than 256 characters
+  are not recorded.
+- Batched requests, including `n > 1` (SGLang turns those into batches with
+  derived rids), are not checked. Their entries simply expire.
 
-Both hooks wrap synchronous methods that run on the tokenizer manager's event
+The abort and registration hooks wrap synchronous methods that run on the tokenizer manager's event
 loop, so an abort and a registration for one rid never interleave. Whichever
 runs second sees the first. The table also takes a lock against calls from
 other threads.

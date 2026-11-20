@@ -11,16 +11,16 @@ rid it has not registered and forgets it, so that generation later decodes to
 the end for nobody.
 
 This plugin keeps a bounded table of such early aborts, each for a fixed time
-to live. When the tokenizer manager registers a request whose rid is in the
-table, the request is flagged with SGLang's own ``abort_before_dispatch``. The
-dispatch path then finishes it as aborted, with the response SGLang gives any
-request aborted before it reached the scheduler, and the scheduler never sees
-it. Aborts for an rid the engine already holds take SGLang's normal path.
+to live. When ``generate_request`` registers a single request whose rid is in
+the table, the request is finished at once through SGLang's own
+``_handle_abort_req`` and answered through SGLang's own response path, so the
+client gets the usual abort response and the scheduler never sees the request.
+Aborts for an rid the engine already holds take SGLang's normal path.
 
-Both hooks are synchronous methods that run on the tokenizer manager's event
-loop, so a registration and an abort for the same rid never interleave:
-whichever runs second sees what the first did. The table still takes a lock,
-so a call from another thread cannot corrupt it.
+The abort hook and the registration hook wrap synchronous methods that run on
+the tokenizer manager's event loop, so a registration and an abort for the
+same rid never interleave: whichever runs second sees what the first did. The
+table still takes a lock, so a call from another thread cannot corrupt it.
 
 SGLang loads this module through its ``sglang.srt.plugins`` entry point in
 every server process. ``OLMO_SGLANG_EARLY_ABORT_TTL_SECONDS=0`` turns it off.
@@ -33,7 +33,7 @@ import os
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -51,8 +51,12 @@ DEFAULT_MAX_ENTRIES = 65_536
 _TOKENIZER_MANAGER = "sglang.srt.managers.tokenizer_manager.TokenizerManager"
 ABORT_TARGET = f"{_TOKENIZER_MANAGER}.abort_request"
 REGISTER_TARGET = f"{_TOKENIZER_MANAGER}._init_req_state"
-# Present at the pinned revision; the hooks depend on how it resolves a flagged request.
-_DISPATCH_GUARD = "_abort_instead_of_dispatch"
+GENERATE_TARGET = f"{_TOKENIZER_MANAGER}.generate_request"
+# The pinned-revision methods the hooks call to finish and answer a request.
+_REQUIRED_METHODS = ("_handle_abort_req", "_stream_one_response")
+# Longer rids are not retained, so abort callers cannot pin unbounded bytes.
+MAX_RID_LENGTH = 256
+ABORT_MESSAGE = "Aborted on arrival: an abort for this rid arrived first"
 
 
 @dataclass
@@ -160,15 +164,30 @@ def stats() -> EarlyAbortStats | None:
     return None if _table is None else _table.snapshot()
 
 
+class AbortedOnArrival(Exception):
+    """Carries a request finished at registration out of ``generate_request``."""
+
+    def __init__(self, rid: str, state):
+        super().__init__(rid)
+        self.rid = rid
+        self.state = state
+
+
 def abort_request_hook(
     original, manager, rid: str = "", abort_all: bool = False, prefix: bool = False
 ):
     """Around ``TokenizerManager.abort_request``: remember an exact abort for an unknown rid."""
     current = _table
-    if current is not None and rid and not abort_all and not prefix:
+    if (
+        current is not None
+        and isinstance(rid, str)
+        and rid
+        and not abort_all
+        and not prefix
+    ):
         active = rid in manager.rid_to_state
         current.count_abort(active=active)
-        if not active:
+        if not active and len(rid) <= MAX_RID_LENGTH:
             current.record(rid)
         snapshot = current.snapshot()
         if snapshot.exact_aborts % 1000 == 0:
@@ -176,33 +195,62 @@ def abort_request_hook(
     return original(manager, rid, abort_all, prefix)
 
 
-def init_req_state_hook(result, manager, obj, request=None):
-    """After ``TokenizerManager._init_req_state``: flag registered rids aborted earlier."""
+def init_req_state_hook(original, manager, obj, request=None):
+    """Around ``TokenizerManager._init_req_state``: finish a single request aborted earlier.
+
+    The request is registered, then finished by SGLang's ``_handle_abort_req``,
+    which queues the abort response on its state and unregisters it. Raising
+    ``AbortedOnArrival`` stops ``generate_request`` before the pause gate,
+    tokenization and dispatch; ``generate_request_hook`` turns it into the
+    response. Batches, including ``n > 1``, are left alone.
+    """
+    result = original(manager, obj, request)
     current = _table
-    if current is None:
+    if current is None or not getattr(obj, "is_single", True):
         return result
-    for rid in _request_rids(obj):
-        if not current.consume(rid):
-            continue
-        state = manager.rid_to_state.get(rid)
-        if state is None:
-            continue
-        # SGLang's dispatch path finishes a flagged request as aborted instead
-        # of sending it to the scheduler (TokenizerManager._abort_instead_of_dispatch).
-        state.abort_before_dispatch = True
-        logger.info(
-            "Aborted request %s on arrival: its abort arrived first (%s)",
-            rid,
-            current.snapshot(),
-        )
-    return result
+    rid = obj.rid
+    if not isinstance(rid, str) or not current.consume(rid):
+        return result
+    state = manager.rid_to_state[rid]
+    manager._handle_abort_req(_abort_req(rid))
+    logger.info(
+        "Aborted request %s on arrival: its abort arrived first (%s)",
+        rid,
+        current.snapshot(),
+    )
+    raise AbortedOnArrival(rid, state)
 
 
-def _request_rids(obj) -> Iterable[str]:
-    # Mirrors _init_req_state: a single request carries one rid, a batch a list.
-    if not hasattr(obj, "is_single") or obj.is_single:
-        return [obj.rid]
-    return list(obj.rid)
+def _abort_req(rid: str):
+    from sglang.srt.managers.io_struct import AbortReq
+
+    return AbortReq(rid=rid, abort_message=ABORT_MESSAGE)
+
+
+def generate_request_hook(original, manager, obj, request=None):
+    """Around ``TokenizerManager.generate_request``: answer a request aborted on arrival."""
+    return _generate_request(original, manager, obj, request)
+
+
+async def _generate_request(original, manager, obj, request):
+    responses = original(manager, obj, request)
+    try:
+        first = await responses.__anext__()
+    except AbortedOnArrival as aborted:
+        # The same response path, and so the same response, as any aborted request.
+        async for out in manager._stream_one_response(
+            obj=obj, state=aborted.state, request=request
+        ):
+            yield out
+        return
+    except StopAsyncIteration:
+        return
+    try:
+        yield first
+        async for out in responses:
+            yield out
+    finally:
+        await responses.aclose()
 
 
 def _read_config() -> tuple[float, int]:
@@ -227,10 +275,13 @@ def install(register_hook: Callable | None = None) -> bool:
         from sglang.srt.managers.tokenizer_manager import TokenizerManager
         from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
-        if not hasattr(TokenizerManager, _DISPATCH_GUARD):
+        missing = [
+            name for name in _REQUIRED_METHODS if not hasattr(TokenizerManager, name)
+        ]
+        if missing:
             logger.warning(
-                "Early-abort table not installed: this SGLang has no TokenizerManager.%s",
-                _DISPATCH_GUARD,
+                "Early-abort table not installed: this SGLang's TokenizerManager lacks %s",
+                missing,
             )
             return False
 
@@ -240,6 +291,7 @@ def install(register_hook: Callable | None = None) -> bool:
     if _table is None:
         _table = EarlyAbortTable(ttl, max_entries)
     register_hook(ABORT_TARGET, abort_request_hook, "AROUND")
-    register_hook(REGISTER_TARGET, init_req_state_hook, "AFTER")
+    register_hook(REGISTER_TARGET, init_req_state_hook, "AROUND")
+    register_hook(GENERATE_TARGET, generate_request_hook, "AROUND")
     logger.info("Early-abort table installed: ttl=%gs max_entries=%d", ttl, max_entries)
     return True
