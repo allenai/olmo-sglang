@@ -29,6 +29,7 @@ every server process. ``OLMO_SGLANG_EARLY_ABORT_TTL_SECONDS=0`` turns it off.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import threading
 import time
@@ -56,6 +57,9 @@ GENERATE_TARGET = f"{_TOKENIZER_MANAGER}.generate_request"
 _REQUIRED_METHODS = ("_handle_abort_req", "_stream_one_response")
 # Longer rids are not retained, so abort callers cannot pin unbounded bytes.
 MAX_RID_LENGTH = 256
+# sglang.srt.constants.HEALTH_CHECK_RID_PREFIX: SGLang's abort handler ignores
+# these rids, so the plugin must never finish one itself.
+HEALTH_CHECK_RID_PREFIX = "HEALTH_CHECK"
 ABORT_MESSAGE = "Aborted on arrival: an abort for this rid arrived first"
 
 
@@ -86,8 +90,10 @@ class EarlyAbortTable:
         max_entries: int = DEFAULT_MAX_ENTRIES,
         clock: Callable[[], float] = time.monotonic,
     ):
-        if ttl_seconds <= 0:
-            raise ValueError(f"ttl_seconds must be positive, got {ttl_seconds}")
+        if not math.isfinite(ttl_seconds) or ttl_seconds <= 0:
+            raise ValueError(
+                f"ttl_seconds must be positive and finite, got {ttl_seconds}"
+            )
         if max_entries <= 0:
             raise ValueError(f"max_entries must be positive, got {max_entries}")
         self.ttl_seconds = float(ttl_seconds)
@@ -187,7 +193,7 @@ def abort_request_hook(
     ):
         active = rid in manager.rid_to_state
         current.count_abort(active=active)
-        if not active and len(rid) <= MAX_RID_LENGTH:
+        if not active and _retainable(rid):
             current.record(rid)
         snapshot = current.snapshot()
         if snapshot.exact_aborts % 1000 == 0:
@@ -213,12 +219,20 @@ def init_req_state_hook(original, manager, obj, request=None):
         return result
     state = manager.rid_to_state[rid]
     manager._handle_abort_req(_abort_req(rid))
+    if not state.finished:
+        # SGLang declined to finish it; let the request run rather than wait forever.
+        logger.warning("Could not abort request %s on arrival; it will run", rid)
+        return result
     logger.info(
         "Aborted request %s on arrival: its abort arrived first (%s)",
         rid,
         current.snapshot(),
     )
     raise AbortedOnArrival(rid, state)
+
+
+def _retainable(rid: str) -> bool:
+    return len(rid) <= MAX_RID_LENGTH and not rid.startswith(HEALTH_CHECK_RID_PREFIX)
 
 
 def _abort_req(rid: str):

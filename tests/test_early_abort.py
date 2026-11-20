@@ -151,7 +151,9 @@ def test_expired_entries_free_space_before_eviction(clock):
     assert (snapshot.size, snapshot.evicted, snapshot.expired) == (1, 0, 4)
 
 
-@pytest.mark.parametrize(("ttl", "entries"), [(0, 1), (-1, 1), (1, 0)])
+@pytest.mark.parametrize(
+    ("ttl", "entries"), [(0, 1), (-1, 1), (float("nan"), 1), (float("inf"), 1), (1, 0)]
+)
 def test_rejects_invalid_bounds(ttl, entries):
     with pytest.raises(ValueError):
         early_abort.EarlyAbortTable(ttl, entries)
@@ -203,12 +205,21 @@ def test_batches_are_left_alone(clock):
     assert len(early_abort.table()) == 1
 
 
-def test_long_rids_are_not_retained(clock):
+def test_long_and_health_check_rids_are_not_retained(clock):
     manager = FakeManager()
     manager.abort_request(rid="x" * (early_abort.MAX_RID_LENGTH + 1))
     manager.abort_request(rid="y" * early_abort.MAX_RID_LENGTH)
+    manager.abort_request(rid=early_abort.HEALTH_CHECK_RID_PREFIX + "_1")
     snapshot = early_abort.stats()
-    assert (snapshot.exact_aborts, snapshot.recorded) == (2, 1)
+    assert (snapshot.exact_aborts, snapshot.recorded) == (3, 1)
+
+
+def test_request_runs_if_sglang_does_not_finish_it(clock, monkeypatch):
+    manager = FakeManager()
+    monkeypatch.setattr(manager, "_handle_abort_req", lambda req: None)
+    manager.abort_request(rid="kept")
+    assert generate(manager, "kept")["meta_info"]["finish_reason"] == {"type": "length"}
+    assert manager.scheduled == ["kept"]
 
 
 @pytest.mark.parametrize(

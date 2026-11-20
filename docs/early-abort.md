@@ -26,7 +26,8 @@ This plugin makes such an abort stick. It is installed through SGLang's
   HTTP 200 with `finish_reason = {"type": "abort", "message": "Aborted on
   arrival: an abort for this rid arrived first"}` and no output tokens, and the
   scheduler never sees the request.
-- `abort_all`, prefix aborts, empty rids and rids longer than 256 characters
+- `abort_all`, prefix aborts, empty rids, SGLang health-check rids and rids
+  longer than 256 characters
   are not recorded.
 - Batched requests, including `n > 1` (SGLang turns those into batches with
   derived rids), are not checked. Their entries simply expire.

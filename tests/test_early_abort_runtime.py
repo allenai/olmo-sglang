@@ -226,7 +226,25 @@ def test_abort_all_is_unchanged(harness):
     assert early_abort.stats().exact_aborts == 0
 
 
+def test_health_check_abort_does_not_stop_the_request(harness):
+    manager = harness.manager
+    rid = early_abort.HEALTH_CHECK_RID_PREFIX + "_probe"
+
+    async def scenario():
+        await with_loop_state(manager)
+        manager.abort_request(rid=rid)
+        return await generate(manager, rid)
+
+    out = asyncio.run(scenario())
+    assert harness.scheduled == [rid]
+    assert out["meta_info"]["finish_reason"]["type"] == "length"
+    assert manager.rid_to_state == {}
+
+
 def test_hook_targets_resolve_on_pinned_sglang():
+    from sglang.srt.constants import HEALTH_CHECK_RID_PREFIX
+
+    assert early_abort.HEALTH_CHECK_RID_PREFIX == HEALTH_CHECK_RID_PREFIX
     for target in (
         early_abort.ABORT_TARGET,
         early_abort.REGISTER_TARGET,
