@@ -169,6 +169,25 @@ class RoundingRMSNorm(core_compat.CoreRMSNorm):
 class RoundingExperts(FusedMoE):
     """Keep SGLang parameter storage/loaders and publication contracts intact."""
 
+    def weight_loader_fused(self, param, loaded_weight, weight_name, shard_id):
+        if shard_id != "w13" or self.moe_tp_size == 1:
+            return super().weight_loader_fused(
+                param, loaded_weight, weight_name, shard_id
+            )
+
+        # Olmo publishes all gate rows followed by all up rows. The fused
+        # SGLang loader slices the packed axis as a whole, so shard the two
+        # projections independently using its gate/up weight loader.
+        gate, up = loaded_weight.chunk(2, dim=1)
+        for projection, weight in (("w1", gate), ("w3", up)):
+            self._load_w13(
+                expert_data=param.data,
+                shard_dim=1,
+                shard_id=projection,
+                loaded_weight=weight,
+                tp_rank=self.moe_tp_rank,
+            )
+
     def forward(self, hidden_states, topk_output):
         if getattr(self.quant_method, "w13_swiglu_interleaved", False):
             raise ValueError(

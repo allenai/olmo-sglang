@@ -1,6 +1,7 @@
 """Numerical and replay controls for graph-compatible expert rounding."""
 
 from importlib import import_module
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -27,6 +28,32 @@ def test_tp_down_projection_reduces_fp32_before_bf16_rounding():
     assert core_compat.reduce_expert_outputs(actual, None) is actual
     with pytest.raises(ValueError, match="FP32"):
         core_compat.reduce_expert_outputs(actual, reduce)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="SGLang CUDA runtime required"
+)
+@pytest.mark.parametrize("rank", [0, 1])
+def test_tp2_fused_gate_up_load_shards_each_projection(rank):
+    experts_class = import_module("olmo_sglang.rounding").RoundingExperts
+    experts = experts_class.__new__(experts_class)
+    torch.nn.Module.__init__(experts)
+    experts.moe_tp_size = 2
+    experts.moe_tp_rank = rank
+    experts.moe_runner_config = SimpleNamespace(is_gated=True)
+    experts.quant_method = SimpleNamespace()
+    experts.use_presharded_weights = False
+    experts.use_padded_loading = False
+    experts.use_triton_kernels = False
+    gate = torch.arange(24, dtype=torch.bfloat16).reshape(2, 4, 3)
+    up = gate + 32
+    packed = torch.cat((gate, up), dim=1)
+    param = torch.nn.Parameter(torch.empty(2, 4, 3, dtype=torch.bfloat16))
+
+    experts.weight_loader_fused(param, packed, "w13_weight", "w13")
+
+    expected = torch.cat((gate.chunk(2, dim=1)[rank], up.chunk(2, dim=1)[rank]), dim=1)
+    torch.testing.assert_close(param, expected, rtol=0, atol=0)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
