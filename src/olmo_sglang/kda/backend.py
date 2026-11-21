@@ -422,8 +422,16 @@ class OlmoFLAKDAKernel(LinearAttnKernelBase):
             ).chunk_kda
         initial_state, valid = self._gather_initial_state(ssm_states, cache_indices)
         core_layout = getattr(self, "core_compat", False)
-        raw_gate = raw_gate.reshape(q.shape[0], q.shape[1], v.shape[2], q.shape[-1])
-        beta = raw_beta.reshape(q.shape[0], q.shape[1], v.shape[2]).float().sigmoid()
+        # Breakable prefill CUDA graphs pad the batch. Some SGLang builds (0.5.19)
+        # trim the token-major mixed_qkv to the real tokens but slice the
+        # [1, tokens, ...] gate and beta on dim 0, leaving them padded. Padding is
+        # trailing, so keep only the tokens q carries.
+        num_tokens = q.shape[0] * q.shape[1]
+        heads, key_dim = v.shape[2], q.shape[-1]
+        raw_gate = raw_gate.reshape(-1, heads, key_dim)[:num_tokens]
+        raw_gate = raw_gate.reshape(q.shape[0], q.shape[1], heads, key_dim)
+        beta = raw_beta.reshape(-1, heads)[:num_tokens]
+        beta = beta.reshape(q.shape[0], q.shape[1], heads).float().sigmoid()
         if self.allow_neg_eigval:
             beta = beta * 2.0
         inference_context = (

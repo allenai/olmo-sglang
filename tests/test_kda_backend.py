@@ -272,6 +272,53 @@ def test_kda_kernel_adapts_beta_and_state_layout_to_fla_0_5_2(monkeypatch, core_
     torch.testing.assert_close(state_pool, expected_state, rtol=0, atol=0)
 
 
+def test_kda_extend_trims_graph_padded_gate_and_beta_to_real_tokens(monkeypatch):
+    # SGLang 0.5.19 breakable prefill graphs trimmed mixed_qkv (so q/k/v) to the
+    # real tokens but left the [1, tokens, ...] gate and beta at the padded length.
+    calls = []
+
+    def chunk_kda(**kwargs):
+        calls.append(kwargs)
+        return torch.zeros_like(kwargs["v"]), kwargs["initial_state"]
+
+    fla = ModuleType("fla")
+    ops = ModuleType("fla.ops")
+    kda = ModuleType("fla.ops.kda")
+    kda.chunk_kda = chunk_kda
+    fla.ops = ops
+    ops.kda = kda
+    for name, module in {"fla": fla, "fla.ops": ops, "fla.ops.kda": kda}.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    kernel = object.__new__(kda_backend.OlmoFLAKDAKernel)
+    kernel.allow_neg_eigval = False
+    kernel.core_compat = False
+    real, padded = 3, 5
+    q = torch.zeros(1, real, 2, 4)
+    v = torch.zeros(1, real, 2, 3)
+    raw_gate = torch.arange(padded * 2 * 4).float().reshape(1, padded, 2, 4)
+    raw_beta = torch.arange(padded * 2).float().reshape(1, padded, 2)
+
+    output = kernel.extend(
+        q,
+        q,
+        v,
+        raw_gate,
+        raw_beta,
+        A_log=torch.zeros(2),
+        dt_bias=torch.zeros(8),
+        ssm_states=torch.zeros(1, 2, 3, 4),
+        cache_indices=torch.tensor([0]),
+        query_start_loc=torch.tensor([0, real]),
+    )
+
+    assert output.shape == v.shape
+    torch.testing.assert_close(calls[0]["g"], raw_gate[:, :real], rtol=0, atol=0)
+    torch.testing.assert_close(
+        calls[0]["beta"], raw_beta[:, :real].sigmoid(), rtol=0, atol=0
+    )
+
+
 def test_core_kda_chunks_keep_requests_and_cache_states_separate():
     calls = []
     q = torch.arange(10).reshape(1, 5, 1, 2).float()
