@@ -1,12 +1,100 @@
 """Numerical and replay controls for graph-compatible expert rounding."""
 
 from importlib import import_module
+from types import SimpleNamespace
 
 import pytest
 import torch
 from torch.nn import functional as F
 
 from olmo_sglang import core_compat
+
+
+def test_tp_down_projection_reduces_fp32_before_bf16_rounding():
+    partial = torch.tensor([[[1.004, -1.004], [0.004, 0.004]]])
+    other = torch.tensor([[[-1.0, 1.0], [1.0, 1.0]]])
+    observed = []
+
+    def reduce(value):
+        observed.append((value.dtype, value.clone()))
+        return value + other
+
+    actual = core_compat.reduce_expert_outputs(partial, reduce)
+    assert observed[0][0] == torch.float32
+    torch.testing.assert_close(observed[0][1], partial, rtol=0, atol=0)
+    torch.testing.assert_close(actual, (partial + other).bfloat16(), rtol=0, atol=0)
+    premature = (partial.bfloat16().float() + other.bfloat16().float()).bfloat16()
+    assert not torch.equal(actual, premature)
+    assert core_compat.reduce_expert_outputs(actual, None) is actual
+    with pytest.raises(ValueError, match="FP32"):
+        core_compat.reduce_expert_outputs(actual, reduce)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="SGLang CUDA runtime required"
+)
+@pytest.mark.parametrize("rank", [0, 1])
+def test_tp2_fused_gate_up_load_shards_each_projection(rank):
+    experts_class = import_module("olmo_sglang.rounding").RoundingExperts
+    experts = experts_class.__new__(experts_class)
+    torch.nn.Module.__init__(experts)
+    experts.moe_tp_size = 2
+    experts.moe_tp_rank = rank
+    experts.moe_runner_config = SimpleNamespace(is_gated=True)
+    experts.quant_method = SimpleNamespace()
+    experts.use_presharded_weights = False
+    experts.use_padded_loading = False
+    experts.use_triton_kernels = False
+    gate = torch.arange(24, dtype=torch.bfloat16).reshape(2, 4, 3)
+    up = gate + 32
+    packed = torch.cat((gate, up), dim=1)
+    param = torch.nn.Parameter(torch.empty(2, 4, 3, dtype=torch.bfloat16))
+
+    experts.weight_loader_fused(param, packed, "w13_weight", "w13")
+
+    expected = torch.cat((gate.chunk(2, dim=1)[rank], up.chunk(2, dim=1)[rank]), dim=1)
+    torch.testing.assert_close(param, expected, rtol=0, atol=0)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+def test_tp_down_kernel_preserves_fp32_partials(monkeypatch):
+    rounding = import_module("olmo_sglang.rounding")
+    runtime = import_module("sglang.srt.runtime_context")
+    server_args = import_module("sglang.srt.server_args")
+    monkeypatch.setattr(
+        runtime, "_CONTEXT", runtime.RuntimeContext(parallel=runtime.ParallelContext())
+    )
+    with monkeypatch.context() as setup:
+        setup.setattr(server_args.ServerArgs, "__post_init__", lambda self: None)
+        args = server_args.ServerArgs(model_path="unused", device="cuda")
+    runtime.publish(args, role="test")
+    # The exact down result is 1.004..., whose BF16 representation loses the
+    # small residual. Subtracting 1 in the reducer exposes premature rounding.
+    value = torch.ones(1, 64, device="cuda", dtype=torch.bfloat16)
+    w13 = torch.zeros(1, 128, 64, device="cuda", dtype=torch.bfloat16)
+    w13[:, :, 0] = 1
+    w2 = torch.zeros(1, 64, 64, device="cuda", dtype=torch.bfloat16)
+    w2[:, :, 0] = 1.375
+    weights = torch.ones(1, 1, device="cuda")
+    routes = torch.zeros(1, 1, device="cuda", dtype=torch.int32)
+    partials = []
+
+    def reduce(value):
+        partials.append(value.clone())
+        return value - 1
+
+    actual = rounding.rounded_experts(
+        value, w13, w2, weights, routes, reduce_output=reduce
+    )
+    activation = (F.silu(torch.ones_like(value)) * torch.ones_like(value))[0, 0]
+    expected_partial = activation.float() * w2[0, 0, 0].float()
+    torch.testing.assert_close(
+        partials[0], expected_partial.expand_as(partials[0]), rtol=0, atol=0
+    )
+    assert not torch.equal(partials[0], partials[0].bfloat16().float())
+    torch.testing.assert_close(
+        actual, (expected_partial - 1).bfloat16().expand_as(actual), rtol=0, atol=0
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")

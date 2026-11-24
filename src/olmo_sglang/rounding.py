@@ -1,11 +1,14 @@
 """Graph-compatible BF16 rounding using SGLang's existing expert GEMMs.
 
-This deliberately scoped TP1/BF16 adapter reuses the pinned SGLang alignment,
+This deliberately scoped TP1/TP2 BF16 adapter reuses the pinned SGLang alignment,
 tuning and GEMM interfaces. It does not modify process-global activation hooks,
 Core layouts, attention dispatch or recurrent caches.
 """
 
+from collections.abc import Callable
+
 import torch
+from sglang.srt.distributed import tensor_model_parallel_all_reduce
 from sglang.srt.layers.moe.fused_moe_triton import FusedMoE
 from sglang.srt.layers.moe.moe_runner.triton_utils import fused_moe
 from torch.nn import functional as F
@@ -14,7 +17,16 @@ from triton import language as tl
 from olmo_sglang import core_compat, rounding_kernels
 
 
-def rounded_experts(value, w13, w2, weights, routes, *, fused=None):
+def rounded_experts(
+    value,
+    w13,
+    w2,
+    weights,
+    routes,
+    *,
+    fused=None,
+    reduce_output: Callable[[torch.Tensor], torch.Tensor] | None = None,
+):
     if fused is None:
         fused = core_compat.fused_rounding_enabled()
     if (
@@ -88,7 +100,9 @@ def rounded_experts(value, w13, w2, weights, routes, *, fused=None):
         gate, up = gate_up.chunk(2, dim=-1)
         activated = F.silu(gate) * up
     outputs = torch.empty(
-        (tokens, topk, w2.shape[1]), device=value.device, dtype=value.dtype
+        (tokens, topk, w2.shape[1]),
+        device=value.device,
+        dtype=torch.float32 if reduce_output is not None else value.dtype,
     )
     fused_moe.invoke_fused_moe_kernel(
         activated,
@@ -106,7 +120,7 @@ def rounded_experts(value, w13, w2, weights, routes, *, fused=None):
         False,
         1,
         down_config or config,
-        compute_type=tl.bfloat16,
+        compute_type=tl.float32 if reduce_output is not None else tl.bfloat16,
         use_fp8_w8a8=False,
         use_int8_w8a8=False,
         use_int8_w8a16=False,
@@ -117,8 +131,11 @@ def rounded_experts(value, w13, w2, weights, routes, *, fused=None):
         filter_expert=False,
         router_topk=topk,
     )
-    # Down GEMM writes BF16 *before* weighting. Keep weighting and reduction in
-    # FP32, then round once, as in Core. Captured tensors use normal graph pools.
+    # TP shards partition the down GEMM's reduction dimension. Sum its FP32
+    # partials before rounding each expert's result to BF16, then apply routing
+    # weights. Reducing an already weighted/BF16 combined result moves that
+    # boundary and introduces an extra rounding of each partial expert output.
+    outputs = core_compat.reduce_expert_outputs(outputs, reduce_output)
     if fused:
         return rounding_kernels.weighted_sum(outputs, weights)
     return (outputs.float() * weights.float().unsqueeze(-1)).sum(1).to(value.dtype)
@@ -152,6 +169,25 @@ class RoundingRMSNorm(core_compat.CoreRMSNorm):
 class RoundingExperts(FusedMoE):
     """Keep SGLang parameter storage/loaders and publication contracts intact."""
 
+    def weight_loader_fused(self, param, loaded_weight, weight_name, shard_id):
+        if shard_id != "w13" or self.moe_tp_size == 1:
+            return super().weight_loader_fused(
+                param, loaded_weight, weight_name, shard_id
+            )
+
+        # Olmo publishes all gate rows followed by all up rows. The fused
+        # SGLang loader slices the packed axis as a whole, so shard the two
+        # projections independently using its gate/up weight loader.
+        gate, up = loaded_weight.chunk(2, dim=1)
+        for projection, weight in (("w1", gate), ("w3", up)):
+            self._load_w13(
+                expert_data=param.data,
+                shard_dim=1,
+                shard_id=projection,
+                loaded_weight=weight,
+                tp_rank=self.moe_tp_rank,
+            )
+
     def forward(self, hidden_states, topk_output):
         if getattr(self.quant_method, "w13_swiglu_interleaved", False):
             raise ValueError(
@@ -163,4 +199,9 @@ class RoundingExperts(FusedMoE):
             self.w2_weight,
             topk_output.topk_weights,
             topk_output.topk_ids,
+            reduce_output=(
+                tensor_model_parallel_all_reduce
+                if self.moe_tp_size > 1 and self.reduce_results
+                else None
+            ),
         )
