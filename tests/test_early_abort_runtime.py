@@ -17,7 +17,15 @@ from olmo_sglang import early_abort
 tokenizer_manager = pytest.importorskip("sglang.srt.managers.tokenizer_manager")
 hook_registry = pytest.importorskip("sglang.srt.plugins.hook_registry")
 from sglang.srt.disaggregation.utils import DisaggregationMode  # noqa: E402
-from sglang.srt.managers.io_struct import AbortReq, GenerateReqInput  # noqa: E402
+from sglang.srt.entrypoints.openai.protocol import EmbeddingRequest  # noqa: E402
+from sglang.srt.entrypoints.openai.serving_embedding import (  # noqa: E402
+    OpenAIServingEmbedding,
+)
+from sglang.srt.managers.io_struct import (  # noqa: E402
+    AbortReq,
+    EmbeddingReqInput,
+    GenerateReqInput,
+)
 from sglang.srt.utils.aio_rwlock import RWLock  # noqa: E402
 
 TokenizerManager = tokenizer_manager.TokenizerManager
@@ -64,10 +72,14 @@ class Harness:
     def finish(self, rid):
         state = self.manager.rid_to_state.pop(rid)
         state.finished = True
+        content = (
+            {"embedding": [0.25, 0.5]}
+            if isinstance(state.obj, EmbeddingReqInput)
+            else {"text": "ok", "output_ids": [7]}
+        )
         state.out_list.append(
             {
-                "text": "ok",
-                "output_ids": [7],
+                **content,
                 "meta_info": {
                     "id": rid,
                     "finish_reason": {"type": "length", "length": 1},
@@ -164,6 +176,29 @@ def test_abort_before_generate_returns_abort_and_never_schedules(harness):
     assert other["meta_info"]["finish_reason"]["type"] == "length"
     assert manager.rid_to_state == {}
     assert len(early_abort.table()) == 0
+
+
+def test_early_abort_does_not_consume_an_embedding_request(harness):
+    manager = harness.manager
+    manager.model_path = "fixture"
+    serving = object.__new__(OpenAIServingEmbedding)
+    serving.tokenizer_manager = manager
+
+    async def scenario():
+        await with_loop_state(manager)
+        manager.abort_request(rid="embedding")
+        return await serving._handle_non_streaming_request(
+            EmbeddingReqInput(rid="embedding", input_ids=[1, 2]),
+            EmbeddingRequest(input=[1, 2]),
+            None,
+        )
+
+    response = asyncio.run(scenario())
+
+    assert response.data[0].embedding == [0.25, 0.5]
+    assert harness.scheduled == ["embedding"]
+    assert manager.rid_to_state == {}
+    assert early_abort.stats().rejected_on_arrival == 0
 
 
 def test_abort_after_registration_uses_sglang_abort(harness):

@@ -95,6 +95,7 @@ def clock(monkeypatch):
     monkeypatch.setattr(
         early_abort, "_table", early_abort.EarlyAbortTable(60.0, 4, clock=clock)
     )
+    monkeypatch.setattr(early_abort, "_is_generation_request", lambda obj: True)
     monkeypatch.setattr(early_abort, "_abort_req", lambda rid: SimpleNamespace(rid=rid))
     return clock
 

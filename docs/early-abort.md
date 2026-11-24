@@ -19,7 +19,7 @@ This plugin makes such an abort stick. It is installed through SGLang's
   rid is also recorded in a per-process table with a time to live.
 - **Request registration** (`TokenizerManager._init_req_state`, the first step
   of `generate_request`, before the pause gate, the weight-update lock and
-  tokenization): if a single request's rid has a live entry, the entry is
+  tokenization): if a single generation's rid has a live entry, the entry is
   removed, and SGLang's `_handle_abort_req` finishes the request and
   unregisters it. The `generate_request` hook then answers it through SGLang's
   `_stream_one_response`, the path every aborted request takes. The client gets
@@ -29,8 +29,8 @@ This plugin makes such an abort stick. It is installed through SGLang's
 - `abort_all`, prefix aborts, empty rids, SGLang health-check rids and rids
   longer than 256 characters
   are not recorded.
-- Batched requests, including `n > 1` (SGLang turns those into batches with
-  derived rids), are not checked. Their entries simply expire.
+- Embeddings and batched requests, including `n > 1` (SGLang turns those into
+  batches with derived rids), use SGLang's normal path. Their entries expire.
 
 The abort and registration hooks wrap synchronous methods that run on the tokenizer manager's event
 loop, so an abort and a registration for one rid never interleave. Whichever

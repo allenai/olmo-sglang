@@ -11,8 +11,8 @@ rid it has not registered and forgets it, so that generation later decodes to
 the end for nobody.
 
 This plugin keeps a bounded table of such early aborts, each for a fixed time
-to live. When ``generate_request`` registers a single request whose rid is in
-the table, the request is finished at once through SGLang's own
+to live. When ``generate_request`` registers a single generation whose rid is in
+the table, the generation is finished at once through SGLang's own
 ``_handle_abort_req`` and answered through SGLang's own response path, so the
 client gets the usual abort response and the scheduler never sees the request.
 Aborts for an rid the engine already holds take SGLang's normal path.
@@ -202,17 +202,21 @@ def abort_request_hook(
 
 
 def init_req_state_hook(original, manager, obj, request=None):
-    """Around ``TokenizerManager._init_req_state``: finish a single request aborted earlier.
+    """Around ``TokenizerManager._init_req_state``: finish a single generation aborted earlier.
 
     The request is registered, then finished by SGLang's ``_handle_abort_req``,
     which queues the abort response on its state and unregisters it. Raising
     ``AbortedOnArrival`` stops ``generate_request`` before the pause gate,
     tokenization and dispatch; ``generate_request_hook`` turns it into the
-    response. Batches, including ``n > 1``, are left alone.
+    response. Embeddings and batches, including ``n > 1``, are left alone.
     """
     result = original(manager, obj, request)
     current = _table
-    if current is None or not getattr(obj, "is_single", True):
+    if (
+        current is None
+        or not getattr(obj, "is_single", True)
+        or not _is_generation_request(obj)
+    ):
         return result
     rid = obj.rid
     if not isinstance(rid, str) or not current.consume(rid):
@@ -233,6 +237,12 @@ def init_req_state_hook(original, manager, obj, request=None):
 
 def _retainable(rid: str) -> bool:
     return len(rid) <= MAX_RID_LENGTH and not rid.startswith(HEALTH_CHECK_RID_PREFIX)
+
+
+def _is_generation_request(obj) -> bool:
+    from sglang.srt.managers.io_struct import GenerateReqInput
+
+    return isinstance(obj, GenerateReqInput)
 
 
 def _abort_req(rid: str):
