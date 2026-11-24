@@ -15,6 +15,7 @@ _RUNTIME_TEST_MODULES = {
     "test_policy_cache_backend.py",
     "test_kda_tp.py",
     "test_speculative_kda.py",
+    "test_early_abort_runtime.py",
 }
 
 
