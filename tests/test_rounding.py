@@ -33,27 +33,57 @@ def test_tp_down_projection_reduces_fp32_before_bf16_rounding():
 @pytest.mark.skipif(
     not torch.cuda.is_available(), reason="SGLang CUDA runtime required"
 )
-@pytest.mark.parametrize("rank", [0, 1])
-def test_tp2_fused_gate_up_load_shards_each_projection(rank):
-    experts_class = import_module("olmo_sglang.rounding").RoundingExperts
+@pytest.mark.parametrize("expert_class", ["OlmoFusedMoE", "RoundingExperts"])
+@pytest.mark.parametrize("use_triton_kernels", [False, True])
+@pytest.mark.parametrize("tp_size, rank", [(1, 0), (2, 0), (2, 1)])
+def test_fused_gate_up_update_shards_each_projection(
+    expert_class, use_triton_kernels, tp_size, rank
+):
+    models = import_module("olmo_sglang.models.olmo3_moe")
+    experts_class = getattr(models, expert_class)
     experts = experts_class.__new__(experts_class)
     torch.nn.Module.__init__(experts)
-    experts.moe_tp_size = 2
+    experts.moe_tp_size = tp_size
     experts.moe_tp_rank = rank
     experts.moe_runner_config = SimpleNamespace(is_gated=True)
+    experts.quant_config = None
     experts.quant_method = SimpleNamespace()
+    experts.scheme = None
     experts.use_presharded_weights = False
     experts.use_padded_loading = False
-    experts.use_triton_kernels = False
+    experts.use_triton_kernels = use_triton_kernels
+
     gate = torch.arange(24, dtype=torch.bfloat16).reshape(2, 4, 3)
     up = gate + 32
     packed = torch.cat((gate, up), dim=1)
-    param = torch.nn.Parameter(torch.empty(2, 4, 3, dtype=torch.bfloat16))
+    expected = torch.cat(
+        (gate.chunk(tp_size, dim=1)[rank], up.chunk(tp_size, dim=1)[rank]), dim=1
+    )
+    if use_triton_kernels:
+        expected = expected.transpose(-2, -1)
+    experts.w13_weight = torch.nn.Parameter(torch.zeros_like(expected).contiguous())
+    pointer = experts.w13_weight.data_ptr()
 
-    experts.weight_loader_fused(param, packed, "w13_weight", "w13")
+    model = models.Olmo3MoeForCausalLM.__new__(models.Olmo3MoeForCausalLM)
+    torch.nn.Module.__init__(model)
+    model.config = SimpleNamespace(n_routed_experts=2)
+    model.model = torch.nn.Module()
+    model.model.layers = torch.nn.ModuleList([torch.nn.Module()])
+    model.model.layers[0].mlp = torch.nn.Module()
+    model.model.layers[0].mlp.experts = experts
 
-    expected = torch.cat((gate.chunk(2, dim=1)[rank], up.chunk(2, dim=1)[rank]), dim=1)
-    torch.testing.assert_close(param, expected, rtol=0, atol=0)
+    prefix = "model.layers.0.mlp.experts."
+    for offset in (0, 64):
+        assert model.load_weights(
+            [(prefix + "gate_up_proj.weight", packed + offset)]
+        ) == {prefix + "w13_weight"}
+        torch.testing.assert_close(
+            experts.w13_weight,
+            expected + offset,
+            rtol=0,
+            atol=0,
+        )
+        assert experts.w13_weight.data_ptr() == pointer
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
