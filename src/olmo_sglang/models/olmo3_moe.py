@@ -51,6 +51,7 @@ from olmo_sglang.attention import (
 )
 from olmo_sglang.config import validate_olmo3_moe_config
 from olmo_sglang.core_attention import CoreRadixAttention
+from olmo_sglang.experts import OlmoFusedMoE
 from olmo_sglang.kda.layer import Olmo3MoeKDAAttention
 from olmo_sglang.rounding import RoundingExperts, RoundingRMSNorm
 from olmo_sglang.routing import fp32_router_logits, olmo3_moe_topk
@@ -263,7 +264,7 @@ class Olmo3MoeSparseMLP(nn.Module):
             if core_compat.enabled()
             else RoundingExperts
             if core_compat.rounding_enabled()
-            else FusedMoE
+            else OlmoFusedMoE
         )
         self.experts = expert_class(
             num_experts=self.num_experts,

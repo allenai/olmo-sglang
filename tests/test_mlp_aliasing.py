@@ -48,7 +48,7 @@ def test_sparse_mlp_preserves_input_across_fused_experts(monkeypatch, shared):
     monkeypatch.setattr(olmo3_moe.core_compat, "rounding_enabled", lambda: False)
     monkeypatch.setattr(olmo3_moe, "ReplicatedLinear", Linear)
     monkeypatch.setattr(olmo3_moe, "TopK", TopK)
-    monkeypatch.setattr(olmo3_moe, "FusedMoE", Experts)
+    monkeypatch.setattr(olmo3_moe, "OlmoFusedMoE", Experts)
     monkeypatch.setattr(olmo3_moe, "Olmo3MoeDenseMLP", Shared)
     monkeypatch.setattr(olmo3_moe, "_log_ep_parallelism", lambda **kwargs: (0, 2))
     monkeypatch.setattr(
